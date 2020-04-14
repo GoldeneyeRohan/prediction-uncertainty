@@ -89,10 +89,10 @@ def animate_single_trajectories(data, file):
     ax = plt.axes(xlim=xlim, ylim=ylim)
     ax.set_xlabel("x1")
     ax.set_ylabel("x2")
-    line1, = ax.plot([], [], "b.", label="data")
+    line1, = ax.plot([], [], "k.", label="data")
     line2, = ax.plot([], [], "r", label="trajectory")
     X, Y, uncert = plot_covariance(data["K"][0], data["covariance"][0], data["process noise"], xlim, ylim)
-    line3 = ax.contourf(X, Y, uncert)
+    line3 = ax.contourf(X, Y, uncert, cmap="bwr")
     cb = fig.colorbar(line3)
     ax.legend(loc="upper right")
 
@@ -108,8 +108,8 @@ def animate_single_trajectories(data, file):
         line2.set_data(data["state traj"][i-1][:,0], data["state traj"][i-1][:,1])
         X, Y, uncert = plot_covariance(data["K"][i], data["covariance"][i], data["process noise"], xlim, ylim)
         # line3.set_data(X, Y, uncert)
-        line3 = ax.contourf(X,Y, uncert)
-        cb.update_normal(uncert)
+        line3 = ax.contourf(X,Y, uncert, cmap="bwr")
+        cb.set_clim(vmin=np.min(uncert), vmax=np.max(uncert))
         ax.set_title("trajectory {}".format(i))
         return line1, line2
 
