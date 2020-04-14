@@ -93,6 +93,7 @@ def animate_single_trajectories(data, file):
     line2, = ax.plot([], [], "r", label="trajectory")
     X, Y, uncert = plot_covariance(data["K"][0], data["covariance"][0], data["process noise"], xlim, ylim)
     line3 = ax.contourf(X, Y, uncert)
+    cb = fig.colorbar(line3)
     ax.legend(loc="upper right")
 
     # initialization function: plot the background of each frame
@@ -108,7 +109,7 @@ def animate_single_trajectories(data, file):
         X, Y, uncert = plot_covariance(data["K"][i], data["covariance"][i], data["process noise"], xlim, ylim)
         # line3.set_data(X, Y, uncert)
         line3 = ax.contourf(X,Y, uncert)
-        fig.colorbar(line3, cax=ax)
+        cb.update_normal(uncert)
         ax.set_title("trajectory {}".format(i))
         return line1, line2
 
