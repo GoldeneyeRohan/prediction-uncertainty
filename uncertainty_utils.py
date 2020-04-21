@@ -89,14 +89,14 @@ def sim_traj(A, B, K, Q, R, process_noise, x_init, N=50, input_limits=np.array([
         u_traj.append(u)
     return np.array(x_traj), np.array(u_traj), cost
 
-def plot_covariance(K, cov, sigma, xlim, ylim, n_grid = 100):
+def plot_covariance(K, cov, var, xlim, ylim, n_grid = 100):
     x = np.linspace(xlim[0], xlim[1], n_grid)
     y = np.linspace(ylim[0], ylim[1], n_grid)
     X, Y = np.meshgrid(x, y)
     XX = np.vstack((X.flatten(),Y.flatten()))
     U =  - K @ XX
     XU = np.vstack((XX, U))
-    uncerts = np.array([sigma * XU[:,i].T @ cov @ XU[:,i] for i in range(XU.shape[1])]).reshape(X.shape)
+    uncerts = np.array([var * XU[:,i].T @ cov @ XU[:,i] for i in range(XU.shape[1])]).reshape(X.shape)
     return X, Y, uncerts
 
 def calc_t(confidence, dimension):
@@ -124,7 +124,7 @@ def animate_single_trajectories(data, file):
         if i > 0:
             plt.plot(data["state traj"][i-1][:,0], data["state traj"][i-1][:,1], "k.", label="data")
         plt.plot(data["state traj"][i][:,0], data["state traj"][i][:,1], "ro-", label="trajectory")
-        X, Y, uncert = plot_covariance(data["K"][i], data["covariance"][i], data["process noise"], xlim, ylim)
+        X, Y, uncert = plot_covariance(data["K"][i], data["covariance"][i], data["process noise variance"], xlim, ylim)
         cont = plt.contourf(X,Y, uncert, cmap="bwr", vmin=0, vmax=0.6)
         m = plt.cm.ScalarMappable(cmap="bwr")
         m.set_array(uncert)
@@ -151,7 +151,7 @@ def animate_multi_trajectories(data, file):
             state_data = np.vstack(data["state traj"][:i])
             plt.plot(state_data[:,0], state_data[:,1], "k.", label="data")
         plt.plot(data["state traj"][i][:,0], data["state traj"][i-1][:,1], "ro-", label="trajectory")
-        X, Y, uncert = plot_covariance(data["K"][i], data["covariance"][i], data["process noise"], xlim, ylim)
+        X, Y, uncert = plot_covariance(data["K"][i], data["covariance"][i], data["process noise variance"], xlim, ylim)
         cont = plt.contourf(X,Y, uncert, cmap="bwr")
         plt.colorbar()
         plt.title("trajectory {}".format(i))
