@@ -26,7 +26,23 @@ def get_trajectory_cost(x, u, Q, R, input_reference, state_reference, N):
 		trajectory_cost += cp.quad_form((x[:,i] - state_reference[i]), Q)
 	return trajectory_cost
 	
-def LTV_ftocp_solver(A, B, C, N, state_reference, input_reference, state_limits, input_limits, terminal_set, Q, R, P):
+def get_dynamics_parameters(n_states, n_inputs, N):
+	A = [cp.Parameter((n_states, n_states)) for _ in range(N)]
+	B = [cp.Parameter((n_states, n_inputs)) for _ in range(N)]
+	C = [cp.Parameter(n_states) for _ in range(N)]
+	return A, B, C
+
+def get_reference_parameters(n_states, n_inputs, N):
+	input_reference = [cp.Parameter(n_inputs) for _ in range(N)]
+	state_reference = [cp.Parameter(n_states) for _ in range(N + 1)]
+	return state_reference, input_reference
+
+def get_constraint_parameters(n_states, n_inputs, m_state_constraints, m_input_constraints, N):
+	state_limits = [(cp.Parameter((m_state_constraints, n_states)), cp.Parameter(m_state_constraints)) for _ in range(N)]
+	input_limits = [(cp.Parameter((m_input_constraints, n_inputs)), cp.Parameter(m_input_constraints)) for _ in range(N)]
+	return state_limits, input_limits
+
+def LTV_ftocp_solver(N, m_state_constraints, m_input_constraints, m_terminal_set, Q, R, P):
 	"""
 	Solves the Finite Time Optimal Control Problem for a tracking MPC policy.
 	- A = (List of N) state dynamics matrix (nxn matrix)
@@ -48,13 +64,19 @@ def LTV_ftocp_solver(A, B, C, N, state_reference, input_reference, state_limits,
 	n = Q.shape[0]
 	m = R.shape[0]
 
+	# Decision Variables
 	x = cp.Variable((n, N + 1))
 	u = cp.Variable((m, N))
 
-	# Constraints
+	# Problem Parameters
 	x0_param = cp.Parameter(n)
-	init_constraint = [x[:,0] == x0_param]
+	A, B, C = get_dynamics_parameters(n, m, N)
+	state_reference, input_reference = get_reference_parameters(n, m, N)
+	state_limits, input_limits = get_constraint_parameters(n, m, m_state_constraints, m_input_constraints, N)
+	terminal_set = (cp.Parameter((m_terminal_set, n)), cp.Parameter(m_terminal_set))
 
+	# Constraints
+	init_constraint = [x[:,0] == x0_param]
 	dynamics_constraints = get_dynamics_constraints(x, u, A, B, C, N)
 	state_constraints = get_state_constraints(x, state_limits, N)
 	input_constraints = get_input_constraints(u, input_limits, N)
@@ -69,20 +91,26 @@ def LTV_ftocp_solver(A, B, C, N, state_reference, input_reference, state_limits,
 	constraints = dynamics_constraints + init_constraint + state_constraints + input_constraints + terminal_constraint 
 	problem = cp.Problem(cost, constraints)
 
-	return x0_param, x, u, problem
+	return x0_param, x, u, A, B, C, state_reference, input_reference, state_limits, input_limits, terminal_set, problem
 
-def LTV_tube_ftocp_solver(A, B, C, N, state_reference, input_reference, state_limits, input_limits, init_set, terminal_set, Q, R, P):
-	# Setup
+def LTV_tube_ftocp_solver(N, m_state_constraints, m_input_constraints, m_init_set, m_terminal_set, Q, R, P):
 	n = Q.shape[0]
 	m = R.shape[0]
 
+	# Decision Variables
 	x = cp.Variable((n, N + 1))
 	u = cp.Variable((m, N))
 
-	# Constraints
+	# Problem Parameters
 	x0_param = cp.Parameter(n)
-	init_constraint = [init_set[0] @ (x0_param - x[:,0]) <= init_set[1]]
+	A, B, C = get_dynamics_parameters(n, m, N)
+	state_reference, input_reference = get_reference_parameters(n, m, N)
+	state_limits, input_limits = get_constraint_parameters(n, m, m_state_constraints, m_input_constraints, N)
+	init_set = (cp.Parameter((m_init_set, n)), cp.Parameter(m_init_set))
+	terminal_set = (cp.Parameter((m_terminal_set, n)), cp.Parameter(m_terminal_set))
 
+	# Constraints
+	init_constraint = [init_set[0] @ (x0_param - x[:,0]) <= init_set[1]]
 	dynamics_constraints = get_dynamics_constraints(x, u, A, B, C, N)
 	state_constraints = get_state_constraints(x, state_limits, N)
 	input_constraints = get_input_constraints(u, input_limits, N)
@@ -97,27 +125,30 @@ def LTV_tube_ftocp_solver(A, B, C, N, state_reference, input_reference, state_li
 	constraints = dynamics_constraints + init_constraint + state_constraints + input_constraints + terminal_constraint 
 	problem = cp.Problem(cost, constraints)
 
-	return x0_param, x, u, problem
+	return x0_param, x, u, A, B, C, state_reference, input_reference, state_limits, input_limits, init_set, terminal_set, problem
 
-def LTV_LMPC_ftocp_solver(A, B, C, N, n_safe_set, state_reference, input_reference, state_limits, input_limits, Q, R):
-	# Setup
+def LTV_LMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_constraints, Q, R):
 	n = Q.shape[0]
 	m = R.shape[0]
 
+	# Decision Variables
 	x = cp.Variable((n, N + 1))
 	u = cp.Variable((m, N))
 	multipliers = cp.Variable(n_safe_set, nonneg=True) 
 
-	# Constraints
+	# Problem Parameters
 	x0_param = cp.Parameter(n)
 	safe_set = cp.Parameter((n, n_safe_set))
 	value_function = cp.Parameter(n_safe_set)
+	A, B, C = get_dynamics_parameters(n, m, N)
+	state_reference, input_reference = get_reference_parameters(n, m, N)
+	state_limits, input_limits = get_constraint_parameters(n, m, m_state_constraints, m_input_constraints, N)
 
+	# Constraints
 	init_constraint = [x[:,0] == x0_param]
 	dynamics_constraints = get_dynamics_constraints(x, u, A, B, C, N)
 	state_constraints = get_state_constraints(x, state_limits, N)
-	input_constraints = get_input_constraints(u, input_limits, N)
-
+	input_constraints = get_input_constraints(u, input_limits, N)	
 	terminal_constraints = [safe_set @ multipliers == x[:,-1]]
 	terminal_constraints += [np.ones(n_safe_set) @ multipliers == 1]
 
@@ -130,27 +161,32 @@ def LTV_LMPC_ftocp_solver(A, B, C, N, n_safe_set, state_reference, input_referen
 	constraints = dynamics_constraints + init_constraint + state_constraints + input_constraints + terminal_constraints 
 	problem = cp.Problem(cost, constraints)
 
-	return x0_param, safe_set, value_function, x, u, problem
+	return x0_param, x, u, safe_set, value_function, A, B, C, state_reference, input_reference, state_limits, input_limits, problem
 
-def LTV_tube_LMPC_ftocp_solver(A, B, C, N, n_safe_set, state_reference, input_reference, state_limits, input_limits, init_set, Q, R):
+def LTV_tube_LMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_constraints, m_init_set, Q, R):
 	# Setup
 	n = Q.shape[0]
 	m = R.shape[0]
+
+	# Decision Variables
 	x = cp.Variable((n, N + 1))
 	u = cp.Variable((m, N))
 	multipliers = cp.Variable(n_safe_set, nonneg=True) 
 
-	# Constraints
+	# Problem Parameters
 	x0_param = cp.Parameter(n)
+	init_set = (cp.Parameter((m_init_set, n)), cp.Parameter(m_init_set))	
 	safe_set = cp.Parameter((n, n_safe_set))
 	value_function = cp.Parameter(n_safe_set)
+	A, B, C = get_dynamics_parameters(n, m, N)
+	state_reference, input_reference = get_reference_parameters(n, m, N)
+	state_limits, input_limits = get_constraint_parameters(n, m, m_state_constraints, m_input_constraints, N)
 
+	# Constraints
 	init_constraint = [init_set[0] @ (x0_param - x[:,0]) <= init_set[1]]
-
 	dynamics_constraints = get_dynamics_constraints(x, u, A, B, C, N)
 	state_constraints = get_state_constraints(x, state_limits, N)
-	input_constraints = get_input_constraints(u, input_limits, N)
-
+	input_constraints = get_input_constraints(u, input_limits, N)	
 	terminal_constraints = [safe_set @ multipliers == x[:,-1]]
 	terminal_constraints += [np.ones(n_safe_set) @ multipliers == 1]
 
@@ -163,4 +199,4 @@ def LTV_tube_LMPC_ftocp_solver(A, B, C, N, n_safe_set, state_reference, input_re
 	constraints = dynamics_constraints + init_constraint + state_constraints + input_constraints + terminal_constraints 
 	problem = cp.Problem(cost, constraints)
 
-	return x0_param, safe_set, value_function, x, u, problem
+	return x0_param, init_set, x, u, safe_set, value_function, A, B, C, state_reference, input_reference, state_limits, input_limits, problem

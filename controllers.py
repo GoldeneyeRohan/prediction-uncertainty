@@ -6,6 +6,16 @@ import numpy as np
 import polytope
 from abc import ABC, abstractmethod
 
+MODEL_A = "A"
+MODEL_B = "B"
+MODEL_C = "C"
+STATE_REFERENCE = "state reference"
+INPUT_REFERENCE = "input reference"
+STATE_CONSTRAINTS = "state constraints"
+INPUT_CONSTRAINTS = "input constraints"
+TERMINAL_CONSTRAINT = "terminal constraint"
+INIT_CONSTRAINT = "init constraint"
+
 class Controller(ABC):
 
 	@abstractmethod
@@ -51,6 +61,7 @@ class LTI_MPC_Controller(Controller):
 		self.x_traj = None
 		self.u_traj = None
 		self.problem = None
+		self.problem_parameters = None
 		self.x0 = None
 		self.cost = None
 		self.feasible = False
@@ -60,25 +71,39 @@ class LTI_MPC_Controller(Controller):
 		raise(NotImplementedError)
 
 	def build_solver(self):
-		x0, x_traj, u_traj, problem =  mpc_solvers.LTV_ftocp_solver([self.A] * self.N,
-										 [self.B] * self.N,
-										 [self.C] * self.N, 
-										 self.N, 
-										 [self.state_reference] * (self.N + 1), 
-										 [self.input_reference] * self.N,
-										 [self.state_constraints] * self.N, 
-										 [self.input_constraints] * self.N,
-										 self.terminal_constraint,
-										 self.Q, 
-										 self.R,
-										 self.P)
+		(x0, x_traj, u_traj, 
+			A, B, C, 
+			state_reference, input_reference, 
+			state_constraints, input_constraints, 
+			terminal_constraint, problem) =  mpc_solvers.LTV_ftocp_solver(self.N, 
+													self.state_constraints[0].shape[0], 
+													self.input_constraints[0].shape[0], 
+													self.terminal_constraint[0].shape[0], self.Q, self.R, self.P)
 
 		self.x_traj = x_traj
 		self.u_traj = u_traj
 		self.problem = problem
+		self.problem_parameters = {MODEL_A:A, MODEL_B:B, MODEL_C:C, 
+									STATE_REFERENCE:state_reference, INPUT_REFERENCE:input_reference, 
+									STATE_CONSTRAINTS:state_constraints, INPUT_CONSTRAINTS:input_constraints, 
+									TERMINAL_CONSTRAINT:terminal_constraint}
 		self.x0 = x0
 		self.cost = None
 		self.feasible = True
+
+	def set_basic_parameters(self):
+		for i in range(self.N):
+			self.problem_parameters[MODEL_A][i].value = self.A
+			self.problem_parameters[MODEL_B][i].value = self.B
+			self.problem_parameters[MODEL_C][i].value = self.C
+			self.problem_parameters[STATE_REFERENCE][i].value = self.state_reference
+			self.problem_parameters[INPUT_REFERENCE][i].value = self.input_reference
+			self.problem_parameters[STATE_CONSTRAINTS][i][0].value = self.state_constraints[0]
+			self.problem_parameters[STATE_CONSTRAINTS][i][1].value = self.state_constraints[1]
+			self.problem_parameters[INPUT_CONSTRAINTS][i][0].value = self.input_constraints[0]
+			self.problem_parameters[INPUT_CONSTRAINTS][i][1].value = self.input_constraints[1]
+
+		self.problem_parameters[STATE_REFERENCE][self.N].value = self.state_reference
 
 	def solve_ftocp(self, x0):
 		"""
@@ -107,6 +132,9 @@ class LTI_MPC_Tracker(LTI_MPC_Controller):
 
 	def build(self):
 		self.build_solver()
+		self.set_basic_parameters()
+		self.problem_parameters[TERMINAL_CONSTRAINT][0].value = self.terminal_constraint[0]
+		self.problem_parameters[TERMINAL_CONSTRAINT][1].value = self.terminal_constraint[1]
 
 	def solve(self, x0):
 		return self.solve_ftocp(x0)
@@ -125,7 +153,11 @@ class LTI_MPC(LTI_MPC_Controller):
 		U = polytope.Polytope(self.input_constraints[0], self.input_constraints[1])
 		X_terminal = control_utils.maximal_invariant(X, self.A, B=self.B, K=K, U=U)
 		self.terminal_constraint = (X_terminal.A, X_terminal.b)
+
 		self.build_solver()
+		self.set_basic_parameters()
+		self.problem_parameters[TERMINAL_CONSTRAINT][0].value = self.terminal_constraint[0]
+		self.problem_parameters[TERMINAL_CONSTRAINT][1].value = self.terminal_constraint[1]
 
 	def solve(self, x0):
 		return self.solve_ftocp(x0)
@@ -138,22 +170,25 @@ class LTI_Tube_MPC(LTI_MPC_Controller):
 		self.init_constraint = None
 
 	def build_solver(self):
-		x0, x_traj, u_traj, problem =  mpc_solvers.LTV_tube_ftocp_solver([self.A] * self.N,
-										 [self.B] * self.N,
-										 [self.C] * self.N, 
-										 self.N, 
-										 [self.state_reference] * (self.N + 1), 
-										 [self.input_reference] * self.N,
-										 [self.state_constraints] * self.N, 
-										 [self.input_constraints] * self.N,
-										 self.init_constraint,
-										 self.terminal_constraint,
-										 self.Q, 
-										 self.R,
-										 self.P)
+		(x0, x_traj, u_traj, 
+			A, B, C, 
+			state_reference, input_reference, 
+			state_constraints, input_constraints, 
+			init_constraint, terminal_constraint, 
+			problem) =  mpc_solvers.LTV_tube_ftocp_solver(self.N, 
+													self.state_constraints[0].shape[0], 
+													self.input_constraints[0].shape[0], 
+													self.init_constraint[0].shape[0],
+													self.terminal_constraint[0].shape[0],  
+													self.Q, self.R, self.P)
+
 		self.x_traj = x_traj
 		self.u_traj = u_traj
 		self.problem = problem
+		self.problem_parameters = {MODEL_A:A, MODEL_B:B, MODEL_C:C, 
+									STATE_REFERENCE:state_reference, INPUT_REFERENCE:input_reference, 
+									STATE_CONSTRAINTS:state_constraints, INPUT_CONSTRAINTS:input_constraints, 
+									INIT_CONSTRAINT:init_constraint, TERMINAL_CONSTRAINT:terminal_constraint}
 		self.x0 = x0
 		self.cost = None
 		self.feasible = True
@@ -180,6 +215,11 @@ class LTI_Tube_MPC(LTI_MPC_Controller):
 		self.input_constraints = (U_bar.A, U_bar.b)
 
 		self.build_solver()
+		self.set_basic_parameters()
+		self.problem_parameters[INIT_CONSTRAINT][0].value = self.init_constraint[0]
+		self.problem_parameters[INIT_CONSTRAINT][1].value = self.init_constraint[1]
+		self.problem_parameters[TERMINAL_CONSTRAINT][0].value = self.terminal_constraint[0]
+		self.problem_parameters[TERMINAL_CONSTRAINT][1].value = self.terminal_constraint[1]
 
 	def solve(self, x0):
 		u_nominal = self.solve_ftocp(x0)
@@ -203,26 +243,27 @@ class LTI_LMPC(LTI_MPC_Controller):
 		self.value_func_list = []
 
 	def build_solver(self):
-		x0, safe_set, value_function, x_traj, u_traj, problem =  mpc_solvers.LTV_LMPC_ftocp_solver([self.A] * self.N,
-										 [self.B] * self.N,
-										 [self.C] * self.N, 
-										 self.N, 
-										 self.n_safe_set,
-										 [self.state_reference] * (self.N + 1), 
-										 [self.input_reference] * self.N,
-										 [self.state_constraints] * self.N, 
-										 [self.input_constraints] * self.N,
-										 self.Q, 
-										 self.R)
+		(x0, x_traj, u_traj,
+			safe_set, value_function, 
+			A, B, C, 
+			state_reference, input_reference, 
+			state_constraints, input_constraints, 
+			problem) =  mpc_solvers.LTV_LMPC_ftocp_solver(self.N, self.n_safe_set,
+													self.state_constraints[0].shape[0], 
+													self.input_constraints[0].shape[0], 
+													self.Q, self.R)
+
 		self.x_traj = x_traj
 		self.u_traj = u_traj
-		self.problem = problem
-		self.x0 = x0
 		self.safe_set = safe_set
 		self.value_function = value_function
-
+		self.problem = problem
+		self.problem_parameters = {MODEL_A:A, MODEL_B:B, MODEL_C:C, 
+									STATE_REFERENCE:state_reference, INPUT_REFERENCE:input_reference, 
+									STATE_CONSTRAINTS:state_constraints, INPUT_CONSTRAINTS:input_constraints}
+		self.x0 = x0
 		self.cost = None
-		self.feasible = True	
+		self.feasible = True
 
 	def build(self):
 		if not self.ss_size_fixed:
@@ -236,6 +277,7 @@ class LTI_LMPC(LTI_MPC_Controller):
 
 		if not self.ss_size_fixed:
 			self.build()
+			self.set_basic_parameters()
 			self.safe_set.value = np.hstack(self.traj_list)
 			self.value_function.value = np.hstack(self.value_func_list)
 
@@ -253,25 +295,28 @@ class LTI_Tube_LMPC(LTI_LMPC):
 
 
 	def build_solver(self):
-		x0, safe_set, value_function, x_traj, u_traj, problem =  mpc_solvers.LTV_tube_LMPC_ftocp_solver([self.A] * self.N,
-										 [self.B] * self.N,
-										 [self.C] * self.N, 
-										 self.N, 
-										 self.n_safe_set,
-										 [self.state_reference] * (self.N + 1), 
-										 [self.input_reference] * self.N,
-										 [self.state_constraints] * self.N, 
-										 [self.input_constraints] * self.N,
-										 self.init_constraint,
-										 self.Q, 
-										 self.R)
+		(x0, init_constraint, 
+			x_traj, u_traj,
+			safe_set, value_function, 
+			A, B, C, 
+			state_reference, input_reference, 
+			state_constraints, input_constraints, 
+			problem) =  mpc_solvers.LTV_tube_LMPC_ftocp_solver(self.N, self.n_safe_set,
+													self.state_constraints[0].shape[0], 
+													self.input_constraints[0].shape[0], 
+													self.init_constraint[0].shape[0], 
+													self.Q, self.R)
+
 		self.x_traj = x_traj
 		self.u_traj = u_traj
-		self.problem = problem
-		self.x0 = x0
 		self.safe_set = safe_set
 		self.value_function = value_function
-
+		self.problem = problem
+		self.problem_parameters = {MODEL_A:A, MODEL_B:B, MODEL_C:C, 
+									STATE_REFERENCE:state_reference, INPUT_REFERENCE:input_reference, 
+									STATE_CONSTRAINTS:state_constraints, INPUT_CONSTRAINTS:input_constraints,
+									INIT_CONSTRAINT:init_constraint}
+		self.x0 = x0
 		self.cost = None
 		self.feasible = True
 
@@ -295,6 +340,10 @@ class LTI_Tube_LMPC(LTI_LMPC):
 			self.input_constraints = (U_bar.A, U_bar.b)
 
 		self.build_solver()
+		self.set_basic_parameters()
+		self.problem_parameters[INIT_CONSTRAINT][0].value = self.init_constraint[0]
+		self.problem_parameters[INIT_CONSTRAINT][1].value = self.init_constraint[1]
+
 
 	def solve(self, x0):
 		u_nominal = self.solve_ftocp(x0)
