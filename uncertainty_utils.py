@@ -89,6 +89,13 @@ def sim_traj(A, B, K, Q, R, process_noise, x_init, N=50, input_limits=np.array([
         u_traj.append(u)
     return np.array(x_traj), np.array(u_traj), cost
 
+def sim_pred_traj(A_est, B_est, x_init, u_traj):
+    x_pred_traj = [x_init]
+    for u in np.rollaxis(u_traj ,0):
+        x_pred = A_est @ x_pred_traj[-1] + B_est @ u
+        x_pred_traj.append(x_pred)
+    return np.vstack(x_pred_traj)
+
 def plot_covariance(K, cov, var, xlim, ylim, n_grid = 100):
     x = np.linspace(xlim[0], xlim[1], n_grid)
     y = np.linspace(ylim[0], ylim[1], n_grid)
@@ -102,18 +109,99 @@ def plot_covariance(K, cov, var, xlim, ylim, n_grid = 100):
 def calc_t(confidence, dimension):
     pi_power = (2 * np.pi) ** (dimension / 2 - 1)
     alpha = (pi_power - confidence) / pi_power
-    t = np.sqrt(2) * np.sqrt(-np.log(alpha))
+    t = np.sqrt(2) * np.sqrt(- np.log(alpha))
     return t
 
 def calc_t_chebyshev(confidence, dimension):
     t = np.sqrt(dimension / (1 - confidence))
     return t
 
+def calc_covariances_input_traj(expected_state_traj, input_traj, process_noise, regression_cov, A_est):
+    z_vecs = np.hstack((expected_state_traj[:-1,:], input_traj))
+    # First state is known
+    n = expected_state_traj.shape[1]
+    d = input_traj.shape[1]
+    covs = [np.zeros((n, n))]
+    # Recurse for covariances
+    for z in np.rollaxis(z_vecs, 0):
+        z_cov = np.zeros((n + d, n + d))
+        z_cov[:n,:n] = covs[-1]
+        r = (1 + z.T @ regression_cov @ z + np.trace(regression_cov @ z_cov)) 
+        cov = process_noise * r +  A_est @ covs[-1] @ A_est.T
+        covs.append(cov)
+    return covs
+
+def calc_covariances_state_feedback(A_est, B_est, K, process_noise, regression_cov, x0, T):
+    A_clp = A_est - B_est @ K
+    x_sim = [np.linalg.matrix_power(A_clp, i) @ x0 for i in range(T)]
+    x_sim = np.vstack(x_sim)
+
+    n = A_est.shape[0]
+    Q = regression_cov[:n, :n]
+    S = regression_cov[:n, n:]
+    R = regression_cov[n:, n:]
+    P = Q - S @ K - K.T @ S.T + K.T @ R @ K
+
+    # Recurse for covariances
+    covs = [np.zeros(A_est.shape)]
+    for x in np.rollaxis(x_sim, 0):
+        r = (1 + x.T @ P @ x + np.trace(P @ covs[-1])) 
+        cov = process_noise * r +  A_clp @ covs[-1] @ A_clp.T
+        covs.append(cov)
+
+    return covs
+
+def mp(x, i):
+    return np.linalg.matrix_power(x,i)
+
+def sum_func(f, idx):
+    return np.sum([f(i) for i in idx], axis=0)
+
+def qf(x, P):
+    return x.T @ P @ x
+
+def calc_covariances_state_feedback_explicit(A_est, B_est, K, process_noise, regression_cov, x0, T):
+    A_clp = A_est - B_est @ K
+    x_sim = [np.linalg.matrix_power(A_clp, i) @ x0 for i in range(T)]
+    A_S = lambda i: mp(A_clp, i) @ process_noise @ mp(A_clp, i).T
+
+    n = A_est.shape[0]
+    Q = regression_cov[:n, :n]
+    S = regression_cov[:n, n:]
+    R = regression_cov[n:, n:]
+    P = Q - S @ K - K.T @ S.T + K.T @ R @ K
+
+    covs = []
+    for k, x in enumerate(x_sim):
+        if k > 1:
+            cov_nominal = sum_func(lambda i : A_S(i), range(k))
+            f = lambda k, i, j: sum_func(lambda l: np.trace(P @ A_S(j)) ** l, range(1, k - j - i))
+            g = lambda k, i: sum_func(lambda j: f(k, i, j), range(k - i - 1))
+            h = lambda k: sum_func(lambda i: A_S(i) * g(k, i), range(k - 1))
+            cov_constants = cov_nominal + h(k)
+
+            cov_state_nominal = sum_func(lambda i: qf(x_sim[i], P) * A_S(k - i - 1), range(k))
+            f_s = lambda k, i, j: sum_func(lambda l: np.trace(P @ A_S(l)) ** (k - j - l - i - 1),range(k - i - j - 1))
+            g_s = lambda k, i: sum_func(lambda j: A_S(j) * f_s(k, i, j), range(k - i - 1))
+            h_s = lambda k: sum_func(lambda i: qf(x_sim[i], P) * g_s(k, i), range(k - 1))
+            cov_state = cov_state_nominal + h_s(k)
+
+            cov = cov_state + cov_constants
+            covs.append(cov)
+    return covs 
+
 def get_elipse(t, cov, mean):
     zs = Z_UNIT * t
     xs = scipy.linalg.sqrtm(cov) @ zs
     xs = xs.T + mean
     return xs
+
+def get_elipses(t, covs, means):
+    ellipses = []
+    for cov, mean in zip(covs, np.rollaxis(means,0)):
+        ellipse_data = get_elipse(t, cov, mean)
+        ellipses.append(ellipse_data)
+    return ellipses
 
 def animate_single_trajectories(data, file):
     fig = plt.figure(figsize=(8,8))

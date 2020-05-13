@@ -1,0 +1,183 @@
+import polytope
+import numpy as np
+import cvxpy as cp
+
+def poly_transform(P, A):
+	"""
+	Compute the linear transformation of the polytope P = {x | Ax <=b} with G:
+	returns Polytope S = {y | \exists x \in P s.t. y = Gx} 
+	"""
+	vertices = polytope.extreme(P)
+	transformed_vertices = vertices @ A.T
+	S = polytope.qhull(transformed_vertices)
+	return S
+
+def poly_translate(P, z):
+	"""
+	Translate the polytope P by z:
+	returns Polytope S = {y | \exists x \in P s.t. y = x + z}
+	"""
+	A = P.A
+	b = P.b
+	b_new = b + A @ z
+	S = polytope.Polytope(A, b_new)
+	return S
+
+def support_function(P, x):
+	"""
+	Evaluate the support function of the polytope P at x:
+	h_P(x) = sup_y x^T y s.t. y \in P
+	"""
+	y = cp.Variable(len(x))
+	prob = cp.Problem(cp.Maximize(x.T @ y), [P.A @ y <= P.b])
+	prob.solve()
+	h = prob.value
+	y_opt = y.value
+	return h, y_opt
+
+def minkowski_sum(A, B):
+	"""
+	Computes the Minkowski Sum of the Polytopes A and B using a projection algorithm
+	returns Polytope S = {z | \exists x \in A, y \in B s.t. z = x + y}
+	"""
+	As = np.vstack((np.hstack((B.A, - B.A)), np.hstack((np.zeros(A.A.shape), A.A))))
+	bs = np.hstack((B.b, A.b))
+	P = polytope.Polytope(As, bs)
+	S = P.project(np.arange(A.A.shape[1]) + 1)
+	return S
+
+def pontryagin_difference(A, B):
+	"""
+	Computes the Pontryagin Difference of the Polytopes A and B using a support function algorithm
+	returns Polytope S = {x | x + y \in A \forall y \in B}
+	"""
+	support_vec = np.array(list(zip(*[support_function(B, a) for a in np.rollaxis(A.A, 0)]))[0])
+	S = polytope.Polytope(A.A, A.b - support_vec)
+	return S
+
+def autonomous_pre(P, A, B=None, K=None, U=None):
+	"""
+	Computes the Pre-set of P subject to the autonomous dynamics x_{t+1} = Ax_t
+	returns Polytope S = Pre(P) = {x | Ax \in S}
+
+	If B, K, U are not none, handles additional input constraints
+	returns Polytope S = Pre(P) = {x | (A - BK)x, Kx \in U}
+	"""
+	if B is None or K is None or U is None:
+		S = polytope.Polytope(P.A @ A, P.b)
+	else: 
+		As = np.vstack((P.A @ (A - B @ K), U.A @ K))
+		bs = np.hstack((P.b, U.b))
+		S = polytope.Polytope(As, bs)
+	return S
+
+def robust_autonomous_pre(P, W, A, B=None, K=None, U=None):
+	"""
+	Computes the robust Pre-set of P subject to the autonomous dynamics x_{t+1} = Ax_t + w_t, w_t \in W
+	returns Polytope S = RPre(P) = {x | Ax + w \in S, \forall w \in W}
+
+	If B, K, U are not none, handles additional input constraints
+	returns Polytope S = RPre(P) = {x | (A - BK)x +w \in S Kx \in U, \forall w \in W}
+	"""
+	RP = pontryagin_difference(P, W)
+	RPre = autonomous_pre(RP, A, B=B, K=K, U=U)
+	return RPre
+
+def is_invariant(P, A, B=None, K=None, U=None):
+	"""
+	Verifies whether P is an invariant set for the autonomous dynamics x_{t+1} = Ax_t
+	returns True if P is invariant, otherwise False
+
+	If B, K, U are not none, handles additional input constraints (A is closed loop otherwise)
+	"""
+	Pre = autonomous_pre(P, A, B=B, K=K, U=U)
+	return polytope.is_subset(P, Pre)
+
+def is_robust_invariant(P, W, A, B=None, K=None, U=None):
+	"""
+	Verifies whether P is a robust invariant set for the autonomous dynamics x_{t+1} = Ax_t + w, w \in W
+	returns True if P is robust invariante, otherwise False
+
+	If B, K, U are not none, handles additional input constraints (A is closed loop otherwise)
+	"""
+	RPre = robust_autonomous_pre(P, W, A, B=B, K=K, U=U)
+	return polytope.is_subset(P, RPre)
+
+def maximal_invariant(X, A, B=None, K=None, U=None):
+	"""
+	Computes the maximal invariant set of the constrainted autonomous dynamics x_{t+1} = (A - BK)x_t, x \in X, u \in U
+	If B, K, U are None, then assumes A is closed dynamics.
+	returns Polytope O s.t. any invariant S \subseteq O
+	"""
+	O_prev = X
+	O_curr = autonomous_pre(O_prev, A, B=B, K=K, U=U).intersect(O_prev)
+	while O_curr != O_prev:
+		O_prev = O_curr
+		O_curr = autonomous_pre(O_prev, A, B=B, K=K, U=U).intersect(O_prev)
+	return O_curr
+
+
+def minimal_invariant(A, W, n=15, epsilon=.01, max_k=200):
+	"""
+	Computes an approximation to the minimal invariant set of the autonomous dynamics
+	x_{t+1} = Ax_t + w_t, w \in W
+	returns Polytope M = (1 + k * epsilon) \sum_{i=0}^n A^iW, k = min integer s.t. M is invariant
+	This approximation can be numerically unstable, you should first eyeball the i for which A^i ~ 0
+	"""
+
+	M_hat = W 
+	for i in range(1, n + 1):
+		AW = poly_transform(W, np.linalg.matrix_power(A, i))
+		if AW.volume != 0:
+			M_hat = minkowski_sum(M_hat, AW)
+		else:
+			break
+
+	for k in range(1, max_k):
+		if is_robust_invariant(M_hat, W, A):
+			break
+		M_hat.scale( (1 + k * epsilon) / (1 + (k - 1) * epsilon))
+
+	return M_hat
+
+
+def robust_maximal_invariant(X, W, M, A, B=None, K=None, U=None):
+	"""
+	Computes the robust maximal invariant set of the constrained autonomous dynamics
+	x_{t+1} = (A - BK)x_t + w_t, x \in X, u \in U,  w \in W
+	If B, K, U are None, then assumes A is closed loop dynamics matrix
+
+	This function assumes that a minimal invarant M is known such that the dynamics are
+	known to lie in the set x_t \in \bar{x}_t + M, where \bar{x}_{t+1} = (A + BK)\bar{x}_t 
+	returns Polytope RO_nominal s.t. any robust invariant RS \subseteq RO for the nominal system
+	and a Polytope RO_total s.t. RO_total = RO_nominal + M, the true maximal invariant
+	"""
+	X_bar = pontryagin_difference(X, M)
+	if B is None or K is None or U is None:
+		RO_nominal = maximal_invariant(X_bar, A)
+	else:
+		M_u = poly_transform(M, K)
+		U_bar = pontryagin_difference(U, M_u)
+		RO_nominal = maximal_invariant(X_bar, A, B=B, K=K, U=U_bar)
+	RO_total = minkowski_sum(RO_nominal, M)	
+	return RO_nominal, RO_total	
+
+def compute_traj_cost(x_traj, u_traj, h):
+	# import pdb; pdb.set_trace()
+	cost_to_go = [h(x_traj[:,i], u_traj[:,i]) for i in range(x_traj.shape[1])]
+	cost_to_go = np.cumsum([cost_to_go[::-1]])[::-1]
+	return cost_to_go
+
+def compute_nominal_traj(x_traj, u_traj, A, B, C, K):
+	A_clp = A - B @ K
+	e_traj = np.zeros(x_traj.shape)
+	w_traj = np.zeros(x_traj[:,:-1].shape)
+	
+	for i in range(x_traj.shape[1] - 1):
+		w_traj[:,i] = x_traj[:,i + 1] - (A @ x_traj[:,i] + B @ u_traj[:,i] + C)
+		e_traj[:,i + 1] = A_clp @ e_traj[:,i] + w_traj[:,i]
+
+	u_nominal = u_traj + K @ e_traj[:,:-1]
+	x_nominal = x_traj - e_traj
+
+	return x_nominal, u_nominal
