@@ -30,6 +30,49 @@ class Controller(ABC):
 	def solve(self):
 		raise(NotImplementedError)
 
+class PID(Controller):
+
+	def __init__(self, P, I, D, state_reference, input_reference, dt, input_constraints):
+		super(PID, self).__init__(dt)
+		self.Kp = P
+		self.Ki = I
+		self.Kd = D
+		self.state_reference = state_reference
+		self.input_reference = input_reference
+
+		self.input_constraints = input_constraints
+
+		self.e  = None
+		self.de = None
+		self.ei = None
+
+	def build(self):
+		self.e  = 0
+		self.de = 0
+		self.ei = 0
+
+	def solve(self, x):
+		e = self.state_reference - x
+		de = (e - self.e) / self.dt
+		ei = self.ei + e * self.dt
+
+		u = self.Kp * e + self.Kd * de + self.Ki * ei + self.input_reference
+
+		self.e = e
+		self.de = de
+
+		if u < self.input_constraints[0]:
+			return self.input_constraints[0]
+		elif u > self.input_constraints[1]:
+			return self.input_constraints[1]
+		else:
+			self.ei = ei
+			return u
+
+	def set_reference(self, state_reference, input_reference):
+		self.state_reference = state_reference
+		self.input_reference = input_reference
+
 class LTI_MPC_Controller(Controller):
 	""" 
 	LTI MPC Controller
