@@ -103,6 +103,8 @@ class LTI_MPC_Controller(Controller):
 		
 		self.x_traj = None
 		self.u_traj = None
+		self.slack = None
+		self.terminal_slack = None
 		self.problem = None
 		self.problem_parameters = None
 		self.x0 = None
@@ -114,7 +116,7 @@ class LTI_MPC_Controller(Controller):
 		raise(NotImplementedError)
 
 	def build_solver(self):
-		(x0, x_traj, u_traj, 
+		(x0, x_traj, u_traj, slack, terminal_slack,
 			A, B, C, 
 			state_reference, input_reference, 
 			state_constraints, input_constraints, 
@@ -125,6 +127,8 @@ class LTI_MPC_Controller(Controller):
 
 		self.x_traj = x_traj
 		self.u_traj = u_traj
+		self.slack = slack
+		self.terminal_slack = terminal_slack
 		self.problem = problem
 		self.problem_parameters = {MODEL_A:A, MODEL_B:B, MODEL_C:C, 
 									STATE_REFERENCE:state_reference, INPUT_REFERENCE:input_reference, 
@@ -213,7 +217,7 @@ class LTI_Tube_MPC(LTI_MPC_Controller):
 		self.init_constraint = None
 
 	def build_solver(self):
-		(x0, x_traj, u_traj, 
+		(x0, x_traj, u_traj, slack, terminal_slack, 
 			A, B, C, 
 			state_reference, input_reference, 
 			state_constraints, input_constraints, 
@@ -227,6 +231,8 @@ class LTI_Tube_MPC(LTI_MPC_Controller):
 
 		self.x_traj = x_traj
 		self.u_traj = u_traj
+		self.slack = slack
+		self.terminal_slack = terminal_slack
 		self.problem = problem
 		self.problem_parameters = {MODEL_A:A, MODEL_B:B, MODEL_C:C, 
 									STATE_REFERENCE:state_reference, INPUT_REFERENCE:input_reference, 
@@ -286,7 +292,7 @@ class LTI_LMPC(LTI_MPC_Controller):
 		self.value_func_list = []
 
 	def build_solver(self):
-		(x0, x_traj, u_traj,
+		(x0, x_traj, u_traj, slack, terminal_slack,
 			safe_set, value_function, 
 			A, B, C, 
 			state_reference, input_reference, 
@@ -298,6 +304,8 @@ class LTI_LMPC(LTI_MPC_Controller):
 
 		self.x_traj = x_traj
 		self.u_traj = u_traj
+		self.slack = slack
+		self.terminal_slack = terminal_slack
 		self.safe_set = safe_set
 		self.value_function = value_function
 		self.problem = problem
@@ -339,7 +347,7 @@ class LTI_Tube_LMPC(LTI_LMPC):
 
 	def build_solver(self):
 		(x0, init_constraint, 
-			x_traj, u_traj,
+			x_traj, u_traj, slack, terminal_slack,
 			safe_set, value_function, 
 			A, B, C, 
 			state_reference, input_reference, 
@@ -352,6 +360,8 @@ class LTI_Tube_LMPC(LTI_LMPC):
 
 		self.x_traj = x_traj
 		self.u_traj = u_traj
+		self.slack = slack
+		self.terminal_slack = terminal_slack
 		self.safe_set = safe_set
 		self.value_function = value_function
 		self.problem = problem
