@@ -1,9 +1,8 @@
 import numpy as np
 import scipy
+from abc import ABC, abstractmethod
 
 def regression(X, Y, N, M, lamb):
-
-
     Q = np.linalg.inv(np.dot(X.T, X) + lamb * np.eye(X.shape[1]))
     b = np.dot(X.T, Y)
     W = np.dot(Q, b)
@@ -37,3 +36,14 @@ def multi_traj_regression(x_trajs, u_trajs, lamb):
     X = np.vstack(xs)
     Y = np.vstack(ys)
     return regression(X,Y, N, M, lamb)
+
+def SystemID(ABC):
+
+    def __init__(self):
+
+    @abstractmethod
+    def fit(self):
+        raise(NotImplementedError)
+
+
+

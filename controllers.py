@@ -369,7 +369,7 @@ class LTI_Tube_LMPC(LTI_LMPC):
 
 		if self.init_constraint is None:
 			W = polytope.Polytope(self.disturbance_set[0], self.disturbance_set[1])
-			M = control_utils.minimal_invariant(self.A - self.B @ self.K, W, max_k=0)
+			M = control_utils.minimal_invariant(self.A - self.B @ self.K, W)
 
 			X = polytope.Polytope(self.state_constraints[0], self.state_constraints[1])
 			U = polytope.Polytope(self.input_constraints[0], self.input_constraints[1])

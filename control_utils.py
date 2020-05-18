@@ -23,8 +23,12 @@ def poly_transform(P, A):
 	"""
 	vertices = polytope.extreme(P)
 	transformed_vertices = vertices @ A.T
-	chull = scipy.spatial.ConvexHull(transformed_vertices)
-	S = chull_to_poly(chull)
+
+	if transformed_vertices.shape[1] > 1:
+		chull = scipy.spatial.ConvexHull(transformed_vertices)
+		S = chull_to_poly(chull)
+	else:
+		S = polytope.qhull(transformed_vertices)
 	S = polytope.reduce(S)
 	# S = polytope.qhull(transformed_vertices)
 	return S
@@ -58,18 +62,20 @@ def minkowski_sum(A, B):
 	"""
 	Computes the Minkowski Sum of the Polytopes A and B using a projection algorithm
 	returns Polytope S = {z | \exists x \in A, y \in B s.t. z = x + y}
-	# """
+	"""
+	# Reduce Call Doesn't work in high dim even though scipy cvxhull is faster for other purposes...
 	# vertices_a = polytope.extreme(A)
 	# vertices_b = polytope.extreme(B)
 	# vertex_combs = np.array(list(itertools.product(np.rollaxis(vertices_a, 0), np.rollaxis(vertices_b, 0))))
 	# s_points = np.sum(vertex_combs, axis=1)
 	# chull = scipy.spatial.ConvexHull(s_points)
-	# S = chull_to_poly(chull)
+	# S_chull = chull_to_poly(chull)
 	
 	As = np.vstack((np.hstack((B.A, - B.A)), np.hstack((np.zeros(A.A.shape), A.A))))
 	bs = np.hstack((B.b, A.b))
 	P = polytope.Polytope(As, bs)
-	S = P.project(np.arange(A.A.shape[1]) + 1)
+	# P.vertices = np.hstack((S_chull.vertices, np.zeros((S_chull.vertices.shape[0], As.shape[1]))))
+	S = P.project(np.arange(A.A.shape[1]) + 1, solver="exthull")
 	S = polytope.reduce(S)
 	return S
 
@@ -88,12 +94,12 @@ def autonomous_pre(P, A, B=None, K=None, U=None):
 	returns Polytope S = Pre(P) = {x | Ax \in S}
 
 	If B, K, U are not none, handles additional input constraints
-	returns Polytope S = Pre(P) = {x | (A - BK)x, Kx \in U}
+	returns Polytope S = Pre(P) = {x | (A - BK)x, -Kx \in U}
 	"""
 	if B is None or K is None or U is None:
 		S = polytope.Polytope(P.A @ A, P.b)
 	else: 
-		As = np.vstack((P.A @ (A - B @ K), U.A @ K))
+		As = np.vstack((P.A @ (A - B @ K), - U.A @ K))
 		bs = np.hstack((P.b, U.b))
 		S = polytope.Polytope(As, bs)
 		S = polytope.reduce(S)
@@ -152,7 +158,6 @@ def minimal_invariant(A, W, n=15, epsilon=.01, max_k=200):
 	returns Polytope M = (1 + k * epsilon) \sum_{i=0}^n A^iW, k = min integer s.t. M is invariant
 	This approximation can be numerically unstable, you should first eyeball the i for which A^i ~ 0
 	"""
-	import pdb; pdb.set_trace()
 	M_hat = W 
 	for i in range(1, n + 1):
 		AW = poly_transform(W, np.linalg.matrix_power(A, i))
