@@ -369,7 +369,7 @@ class LTI_Tube_LMPC(LTI_LMPC):
 
 		if self.init_constraint is None:
 			W = polytope.Polytope(self.disturbance_set[0], self.disturbance_set[1])
-			M = control_utils.minimal_invariant(self.A - self.B @ self.K, W)
+			M = control_utils.minimal_invariant(self.A - self.B @ self.K, W, max_k=0)
 
 			X = polytope.Polytope(self.state_constraints[0], self.state_constraints[1])
 			U = polytope.Polytope(self.input_constraints[0], self.input_constraints[1])
@@ -396,3 +396,32 @@ class LTI_Tube_LMPC(LTI_LMPC):
 			return u
 		else:
 			return None
+
+class LTV_LMPC(LTI_LMPC):
+
+	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set=None):
+		super(LTV_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set=None)
+		self.A = [A] * self.N 
+		self.B = [B] * self.N 
+		self.C = [C] * self.N
+
+	def set_basic_parameters(self):
+		for i in range(self.N):
+			self.problem_parameters[MODEL_A][i].value = self.A[i]
+			self.problem_parameters[MODEL_B][i].value = self.B[i]
+			self.problem_parameters[MODEL_C][i].value = self.C[i]
+			self.problem_parameters[STATE_REFERENCE][i].value = self.state_reference
+			self.problem_parameters[INPUT_REFERENCE][i].value = self.input_reference
+			self.problem_parameters[STATE_CONSTRAINTS][i][0].value = self.state_constraints[0]
+			self.problem_parameters[STATE_CONSTRAINTS][i][1].value = self.state_constraints[1]
+			self.problem_parameters[INPUT_CONSTRAINTS][i][0].value = self.input_constraints[0]
+			self.problem_parameters[INPUT_CONSTRAINTS][i][1].value = self.input_constraints[1]
+
+		self.problem_parameters[STATE_REFERENCE][self.N].value = self.state_reference
+
+	def set_models(self, A, B, C):
+		self.A = A
+		self.B = B
+		self.C = C
+		self.set_basic_parameters
+

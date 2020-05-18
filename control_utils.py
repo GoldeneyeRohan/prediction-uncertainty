@@ -1,6 +1,20 @@
+import itertools
 import polytope
+import scipy.spatial
 import numpy as np
 import cvxpy as cp
+
+def chull_to_poly(chull):
+	"""
+	Converts a scipy.spatial.ConvexHull object into a polytope.Polytope
+	This function is convenient since the Polytope functions can be extremely
+	slow if not pre-populated with both the vertices and equations.
+	"""
+	A = chull.equations[:,:-1]
+	b = - chull.equations[:,-1]
+	S = polytope.Polytope(A, b)
+	S.vertices = chull.points[chull.vertices,:]
+	return S
 
 def poly_transform(P, A):
 	"""
@@ -9,7 +23,10 @@ def poly_transform(P, A):
 	"""
 	vertices = polytope.extreme(P)
 	transformed_vertices = vertices @ A.T
-	S = polytope.qhull(transformed_vertices)
+	chull = scipy.spatial.ConvexHull(transformed_vertices)
+	S = chull_to_poly(chull)
+	S = polytope.reduce(S)
+	# S = polytope.qhull(transformed_vertices)
 	return S
 
 def poly_translate(P, z):
@@ -21,6 +38,8 @@ def poly_translate(P, z):
 	b = P.b
 	b_new = b + A @ z
 	S = polytope.Polytope(A, b_new)
+	if P.vertices is not None:
+		S.vertices = P.vertices + z
 	return S
 
 def support_function(P, x):
@@ -39,11 +58,19 @@ def minkowski_sum(A, B):
 	"""
 	Computes the Minkowski Sum of the Polytopes A and B using a projection algorithm
 	returns Polytope S = {z | \exists x \in A, y \in B s.t. z = x + y}
-	"""
+	# """
+	# vertices_a = polytope.extreme(A)
+	# vertices_b = polytope.extreme(B)
+	# vertex_combs = np.array(list(itertools.product(np.rollaxis(vertices_a, 0), np.rollaxis(vertices_b, 0))))
+	# s_points = np.sum(vertex_combs, axis=1)
+	# chull = scipy.spatial.ConvexHull(s_points)
+	# S = chull_to_poly(chull)
+	
 	As = np.vstack((np.hstack((B.A, - B.A)), np.hstack((np.zeros(A.A.shape), A.A))))
 	bs = np.hstack((B.b, A.b))
 	P = polytope.Polytope(As, bs)
 	S = P.project(np.arange(A.A.shape[1]) + 1)
+	S = polytope.reduce(S)
 	return S
 
 def pontryagin_difference(A, B):
@@ -69,6 +96,7 @@ def autonomous_pre(P, A, B=None, K=None, U=None):
 		As = np.vstack((P.A @ (A - B @ K), U.A @ K))
 		bs = np.hstack((P.b, U.b))
 		S = polytope.Polytope(As, bs)
+		S = polytope.reduce(S)
 	return S
 
 def robust_autonomous_pre(P, W, A, B=None, K=None, U=None):
@@ -124,7 +152,7 @@ def minimal_invariant(A, W, n=15, epsilon=.01, max_k=200):
 	returns Polytope M = (1 + k * epsilon) \sum_{i=0}^n A^iW, k = min integer s.t. M is invariant
 	This approximation can be numerically unstable, you should first eyeball the i for which A^i ~ 0
 	"""
-
+	import pdb; pdb.set_trace()
 	M_hat = W 
 	for i in range(1, n + 1):
 		AW = poly_transform(W, np.linalg.matrix_power(A, i))
@@ -181,3 +209,7 @@ def compute_nominal_traj(x_traj, u_traj, A, B, C, K):
 	x_nominal = x_traj - e_traj
 
 	return x_nominal, u_nominal
+
+def linearize_around(vehicle, x_traj, u_traj, dt):
+	A, B, C = zip(*[vehicle.get_linearization(x_traj[:,i], u_traj[:,i], dt) for i in range(u_traj.shape[1])])
+	return A, B, C	
