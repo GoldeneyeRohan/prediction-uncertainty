@@ -190,6 +190,16 @@ def calc_covariances_state_feedback_explicit(A_est, B_est, K, process_noise, reg
             covs.append(cov)
     return covs 
 
+def project_elipse(Q, dims):
+    """
+    Project the elipse defined by x.T @ Q^-1 @ x down onto dims
+    returns A such that x.T @ A^-1 x.t = proj_dims(elipse)
+    """
+    n = Q.shape[0]
+    P = np.eye(n)[dims,:]
+    return np.linalg.inv(P @ np.linalg.inv(Q) @ P.T)
+
+
 def get_elipse(t, cov, mean):
     zs = Z_UNIT * t
     xs = scipy.linalg.sqrtm(cov) @ zs

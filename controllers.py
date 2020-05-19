@@ -434,4 +434,3 @@ class LTV_LMPC(LTI_LMPC):
 		self.B = B
 		self.C = C
 		self.set_basic_parameters
-
