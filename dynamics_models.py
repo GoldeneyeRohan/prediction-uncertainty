@@ -41,7 +41,6 @@ class NonLinearSystem(ABC):
         """
         advances vehicle state by 1 timestep
         """
-        # import pdb; pdb.set_trace()
         self.x = self.f_discrete(self.x, u, self.dt) + np.random.multivariate_normal(np.zeros(self.n_states), self.process_noise)
         self.t += self.dt
         return self.x
