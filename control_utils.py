@@ -75,7 +75,7 @@ def minkowski_sum(A, B):
 	bs = np.hstack((B.b, A.b))
 	P = polytope.Polytope(As, bs)
 	# P.vertices = np.hstack((S_chull.vertices, np.zeros((S_chull.vertices.shape[0], As.shape[1]))))
-	S = P.project(np.arange(A.A.shape[1]) + 1, solver="exthull")
+	S = P.project(np.arange(A.A.shape[1]) + 1)
 	S = polytope.reduce(S)
 	return S
 
@@ -218,3 +218,26 @@ def compute_nominal_traj(x_traj, u_traj, A, B, C, K):
 def linearize_around(vehicle, x_traj, u_traj, dt):
 	A, B, C = zip(*[vehicle.get_linearization(x_traj[:,i], u_traj[:,i], dt) for i in range(u_traj.shape[1])])
 	return A, B, C	
+
+def select_points(x, N, state_traj, input_traj, value_function):
+	dists = np.linalg.norm(state_traj - x.reshape((len(x),1)), axis=0)
+	min_dist_idx = np.argmin(dists)
+	if min_dist_idx - int(N / 2) < 0 :
+		i_min = 0
+		i_max = N
+	elif min_dist_idx + np.ceil(N / 2) >= len(dists):
+		i_max = len(dists)
+		i_min = i_max - N
+	else:
+		i_min = min_dist_idx - int(N / 2)
+		i_max = min_dist_idx + np.ceil(N / 2)
+	i_min = int(i_min)
+	i_max = int(i_max)
+	return state_traj[:, i_min:i_max], input_traj[:, i_min:i_max], value_function[i_min:i_max]
+
+def split_n(n, k):
+	p = int(n / k)
+	split = [p] * k
+	split[0] += n - p * k
+	return split
+

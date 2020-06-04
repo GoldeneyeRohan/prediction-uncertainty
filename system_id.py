@@ -46,7 +46,7 @@ def weighted_least_squares(X, Y, K, n, m, lamb):
     B = W.T[:,n:n+m]
     C = W.T[:,-1]
 
-    errors = X @ Q - Y
+    errors = X @ W - Y
     return A, B, C, Q, errors
 
 def epanechnikov(x, x_bar, h):

@@ -1,8 +1,20 @@
 import numpy as np
 import scipy.integrate
+import matplotlib.patches as patches
 from abc import ABC, abstractmethod
 
 GRAVITY = 9.81
+
+def plot_vehicle(state, l, w, color="b", alpha=1):
+        """
+        Returns matplotlib.Patch object representing the location and orientation
+        of the vehicle.
+        """
+        x, y, theta = state
+        lower_right_x = x - l * np.cos(theta) + w * np.sin(theta)
+        lower_right_y = y - l * np.sin(theta) - w * np.cos(theta)
+        patch = patches.Rectangle([lower_right_x, lower_right_y], 2 * l, 2 * w, angle=(theta * 180 / np.pi), color=color, alpha=alpha)
+        return patch
 
 class NonLinearSystem(ABC):
 
