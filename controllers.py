@@ -290,12 +290,14 @@ class LTI_LMPC(LTI_MPC_Controller):
 		self.n_safe_set = n_safe_set
 		self.safe_set = None
 		self.value_function = None
+		self.multipliers = None
 		self.traj_list = []
 		self.input_traj_list = []
 		self.value_func_list = []
+		self.i = 0
 
 	def build_solver(self):
-		(x0, x_traj, u_traj, slack, terminal_slack,
+		(x0, x_traj, u_traj, multipliers, slack, terminal_slack,
 			safe_set, value_function, 
 			A, B, C, 
 			state_reference, input_reference, 
@@ -307,6 +309,7 @@ class LTI_LMPC(LTI_MPC_Controller):
 
 		self.x_traj = x_traj
 		self.u_traj = u_traj
+		self.multipliers = multipliers
 		self.slack = slack
 		self.terminal_slack = terminal_slack
 		self.safe_set = safe_set
@@ -329,13 +332,14 @@ class LTI_LMPC(LTI_MPC_Controller):
 		self.traj_list.append(state_traj)
 		self.input_traj_list.append(input_traj)
 		self.value_func_list.append(value_function)
-
+		self.i = 0
 		if not self.ss_size_fixed:
 			self.build()
 			self.safe_set.value = np.hstack(self.traj_list)
 			self.value_function.value = np.hstack(self.value_func_list)
 
 	def solve(self, x0):
+		self.i += 1
 		return self.solve_ftocp(x0)
 
 class LTI_Tube_LMPC(LTI_LMPC):
@@ -351,7 +355,7 @@ class LTI_Tube_LMPC(LTI_LMPC):
 
 	def build_solver(self):
 		(x0, init_constraint, 
-			x_traj, u_traj, slack, terminal_slack,
+			x_traj, u_traj, multipliers, slack, terminal_slack,
 			safe_set, value_function, 
 			A, B, C, 
 			state_reference, input_reference, 
@@ -364,6 +368,7 @@ class LTI_Tube_LMPC(LTI_LMPC):
 
 		self.x_traj = x_traj
 		self.u_traj = u_traj
+		self.multipliers = multipliers
 		self.slack = slack
 		self.terminal_slack = terminal_slack
 		self.safe_set = safe_set
@@ -404,6 +409,7 @@ class LTI_Tube_LMPC(LTI_LMPC):
 
 	def solve(self, x0):
 		u_nominal = self.solve_ftocp(x0)
+		self.i += 1
 		if u_nominal is not None:
 			x_0 = self.x_traj[:,0].value
 			u =  - self.K @ (x0 - x_0) + u_nominal
@@ -447,10 +453,12 @@ class LBLMPC(LTI_Tube_LMPC):
 		self.B_hat = [B] * self.N
 		self.C_hat = [C] * self.N
 		self.x_hat_traj = None
+		self.multipliers_hat = None
 		self.terminal_slack_hat = None
 
 	def build_solver(self):
-		(x0, init_constraint, x_traj, u_traj, slack, x_hat_traj, 
+		(x0, init_constraint, x_traj, u_traj, multipliers, slack, 
+				x_hat_traj, multipliers_hat,
 				terminal_slack, terminal_slack_hat, 
 				safe_set, value_function, 
 				A, B, C, A_hat, B_hat, C_hat, 
@@ -463,7 +471,9 @@ class LBLMPC(LTI_Tube_LMPC):
 
 		self.x_traj = x_traj
 		self.u_traj = u_traj
+		self.multipliers = multipliers
 		self.x_hat_traj = x_hat_traj
+		self.multipliers_hat = multipliers_hat
 		self.slack = slack
 		self.terminal_slack = terminal_slack
 		self.terminal_slack_hat = terminal_slack_hat
@@ -498,43 +508,52 @@ class Local_LTV_LMPC(LTV_LMPC):
 	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set_it, n_safe_set):
 		super(Local_LTV_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set=n_safe_set)
 		self.n_safe_set_it = n_safe_set_it
+		self.x_ss = None
 
 	def select_safe_set(self, x):
 		n_trajectories = len(self.traj_list)
 		points_per_trajectory = control_utils.split_n(self.n_safe_set, min(n_trajectories, self.n_safe_set_it))
 		best_iteration_order = np.argsort([q[0] for q in self.value_func_list])
-		(safe_set, input_safe_set, value_function) = zip(
+		(safe_set, input_safe_set, value_function, successor_safe_set) = zip(
 		 			*[control_utils.select_points(x, n, self.traj_list[traj_index], self.input_traj_list[traj_index], self.value_func_list[traj_index]) 
 		 					for n, traj_index in zip(points_per_trajectory, best_iteration_order)])
 
 		safe_set = np.hstack(safe_set)
 		input_safe_set = np.hstack(input_safe_set)
 		value_function = np.hstack(value_function)
+		successor_safe_set = np.hstack(successor_safe_set)
 
-		return safe_set, input_safe_set, value_function
+		return safe_set, input_safe_set, value_function, successor_safe_set
 
 	def solve(self, x0):
-		x_ss = self.x_traj[:,-1].value if self.x_traj.value is not None else x0
-		self.safe_set.value, _, self.value_function.value = self.select_safe_set(x_ss)
-		return self.solve_ftocp(x0)
+		# import pdb; pdb.set_trace()
+		x_ss = self.x_ss if (self.x_ss is not None and self.i != 0) else x0
+		self.safe_set.value, _, self.value_function.value, successor_safe_set = self.select_safe_set(x_ss)
+		u = self.solve_ftocp(x0)
+		if self.feasible:
+			self.x_ss = successor_safe_set @ self.multipliers.value 
+		self.i += 1
+		return u
 
 class True_LTV_LMPC(LTV_LMPC):
 
 	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints):
 		super(True_LTV_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set=0)
-		self.i = 0
+		self.min_ss_traj_length = 1e9
 
 	def add_trajectory(self, state_traj, input_traj, value_function):
 		self.traj_list.append(state_traj)
 		self.input_traj_list.append(input_traj)
 		self.value_func_list.append(value_function)
+		self.min_ss_traj_length = min(self.min_ss_traj_length, state_traj.shape[1])
 		self.n_safe_set += 1
 		self.i = 0
 		self.build()
 
 	def select_safe_set(self, i):
-		safe_set = [traj[:,i] for traj in self.traj_list]
-		value_function = [q[i] for q in self.value_func_list]
+		i_ss = min(i + self.N, self.min_ss_traj_length - 1)
+		safe_set = [traj[:,i_ss] for traj in self.traj_list]
+		value_function = [q[i_ss] for q in self.value_func_list]
 		return np.vstack(safe_set).T, np.array(value_function)
 
 	def solve(self, x0):
@@ -578,8 +597,3 @@ class LTV_Tube_LMPC(LTV_LMPC):
 
 	def solve(self, x0):
 		return LTI_Tube_LMPC.solve(self, x0)
-		
-
-
-
-		 

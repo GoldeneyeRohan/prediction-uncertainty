@@ -190,7 +190,7 @@ def LTV_LMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_constraint
 	constraints = dynamics_constraints + init_constraint + state_constraints + input_constraints + terminal_constraints 
 	problem = cp.Problem(cost, constraints)
 
-	return x0_param, x, u, slack, terminal_slack, safe_set, value_function, A, B, C, state_reference, input_reference, state_limits, input_limits, problem
+	return x0_param, x, u, multipliers, slack, terminal_slack, safe_set, value_function, A, B, C, state_reference, input_reference, state_limits, input_limits, problem
 
 def LTV_tube_LMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_constraints, m_init_set, Q, R, slack_penalty=1e3, terminal_slack_penalty=1e3):
 	# Setup
@@ -232,7 +232,7 @@ def LTV_tube_LMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_const
 	constraints = dynamics_constraints + init_constraint + state_constraints + input_constraints + terminal_constraints 
 	problem = cp.Problem(cost, constraints)
 
-	return x0_param, init_set, x, u, slack, terminal_slack, safe_set, value_function, A, B, C, state_reference, input_reference, state_limits, input_limits, problem
+	return x0_param, init_set, x, u, multipliers, slack, terminal_slack, safe_set, value_function, A, B, C, state_reference, input_reference, state_limits, input_limits, problem
 
 def LBLMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_constraints, m_init_set, Q, R, slack_penalty=1e3, terminal_slack_penalty=1e3):
 	# Setup
@@ -287,7 +287,7 @@ def LBLMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_constraints,
 	constraints = dynamics_constraints + init_constraints + state_constraints + input_constraints + terminal_constraints 
 	problem = cp.Problem(cost, constraints)
 
-	return (x0_param, init_set, x, u, slack, x_hat, 
+	return (x0_param, init_set, x, u, multipliers, slack, x_hat, multipliers_hat, 
 				terminal_slack, terminal_slack_hat, 
 				safe_set, value_function, 
 				A, B, C, A_hat, B_hat, C_hat, 

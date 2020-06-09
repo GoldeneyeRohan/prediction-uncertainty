@@ -233,7 +233,13 @@ def select_points(x, N, state_traj, input_traj, value_function):
 		i_max = min_dist_idx + np.ceil(N / 2)
 	i_min = int(i_min)
 	i_max = int(i_max)
-	return state_traj[:, i_min:i_max], input_traj[:, i_min:i_max], value_function[i_min:i_max]
+
+	if i_max < state_traj.shape[1] - 1:
+		successor_states = state_traj[:, i_min+1:i_max+1]
+	else:
+		successor_states = state_traj[:, i_min:i_max]
+
+	return state_traj[:, i_min:i_max], input_traj[:, i_min:i_max], value_function[i_min:i_max], successor_states
 
 def split_n(n, k):
 	p = int(n / k)
