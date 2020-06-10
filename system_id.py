@@ -39,8 +39,9 @@ def multi_traj_regression(x_trajs, u_trajs, lamb):
 
 def weighted_least_squares(X, Y, K, n, m, lamb):
     X = np.hstack((X, np.ones((X.shape[0], 1))))
-    Q = np.linalg.inv(X.T @ np.diag(K) @ X + lamb * np.eye(X.shape[1]))
-    W = Q @ X.T @ np.diag(K) @ Y
+    O = np.diag(K)
+    Q = np.linalg.inv(X.T @ O @ X + lamb * np.eye(X.shape[1]))
+    W = Q @ X.T @ O @ Y
 
     A = W.T[:,:n]
     B = W.T[:,n:n+m]
@@ -87,7 +88,7 @@ class LocalLinearModel(SystemID):
         self.u_traj_list.append(u_traj)
 
         if self.n_sysid_it is not None:
-            self.X, self.Y = get_dataset(self.x_traj_list[- self.n_sysid_it:], self.u_traj_list[- self.n_sysid_it:])
+            self.X, self.Y = get_dataset(self.x_traj_list[-self.n_sysid_it:], self.u_traj_list[-self.n_sysid_it:])
         else: 
             self.X, self.Y = get_dataset(self.x_traj_list, self.u_traj_list)
 

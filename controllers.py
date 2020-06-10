@@ -5,6 +5,8 @@ import mpc_solvers
 import numpy as np
 import polytope
 from abc import ABC, abstractmethod
+import time
+
 
 MODEL_A = "A"
 MODEL_B = "B"
@@ -161,8 +163,10 @@ class LTI_MPC_Controller(Controller):
 		returns predicted state and input trajectories, cost function, and feasibility of the problem
 		"""
 		self.x0.value = x0
-		self.problem.solve(solver=cp.ECOS)
-		
+		t = time.time()
+		self.problem.solve(solver=cp.OSQP)
+		tf = time.time()
+		print(1 / (tf - t))
 		if self.problem.status is not "infeasible": 
 			self.cost = self.problem.value
 			self.feasible = True
