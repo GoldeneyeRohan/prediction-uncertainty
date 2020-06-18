@@ -7,16 +7,16 @@ import tqdm
 def get_exp_num(string):
     return int(re.findall('\d+', string)[0])
 
-def save_result(dirstring, filename, x_trajs, u_trajs, x_pred_trajs, value_funcs, model_covs):
-	prev_exps = glob.glob(dirstring + filename + "_*.npz")
-	if len(prev_exps) > 0:
-		exp_nums = [get_exp_num(exp) for exp in prev_exps]
-		i = np.max(exp_nums) + 1
-	else:
-		i = 1
-	filestring = dirstring + filename + "_" + str(i) + ".npz"
-	np.savez(filestring, x_trajs=x_trajs, u_trajs=u_trajs, x_pred_trajs=x_pred_trajs, value_funcs=value_funcs, model_covs = model_covs)
-    
+def save_result(dirstring, filename, x_trajs, u_trajs, x_pred_trajs, value_funcs, model_covs, i=None):
+    if i is None:
+        prev_exps = glob.glob(dirstring + filename + "_*.npz")
+        if len(prev_exps) > 0:
+            exp_nums = [get_exp_num(exp) for exp in prev_exps]
+            i = np.max(exp_nums) + 1
+        else:
+            i = 1
+    filestring = dirstring + filename + "_" + str(i) + ".npz"
+    np.savez(filestring, x_trajs=x_trajs, u_trajs=u_trajs, x_pred_trajs=x_pred_trajs, value_funcs=value_funcs, model_covs = model_covs)
 
 def load_results(dirstring, filename):
 	exps = glob.glob(dirstring + filename + "_*.npz")

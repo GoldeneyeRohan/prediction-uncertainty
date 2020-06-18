@@ -163,10 +163,10 @@ class LTI_MPC_Controller(Controller):
 		returns predicted state and input trajectories, cost function, and feasibility of the problem
 		"""
 		self.x0.value = x0
-		t = time.time()
-		self.problem.solve(solver=cp.OSQP)
-		tf = time.time()
-		print(1 / (tf - t))
+		# t = time.time()
+		self.problem.solve(solver=cp.ECOS)
+		# tf = time.time()
+		# print(1 / (tf - t))
 		if self.problem.status is not "infeasible": 
 			self.cost = self.problem.value
 			self.feasible = True
