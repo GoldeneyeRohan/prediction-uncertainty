@@ -46,9 +46,9 @@ def poly_translate(P, z):
 		S.vertices = P.vertices + z
 	return S
 
-def support_function(P, x):
+def polytopic_support_function(P, x):
 	"""
-	Evaluate the support function of the polytope P at x:
+	Evaluate the support function of the polytope P = {x : Ax <= b} at x:
 	h_P(x) = sup_y x^T y s.t. y \in P
 	"""
 	y = cp.Variable(len(x))
@@ -57,6 +57,19 @@ def support_function(P, x):
 	h = prob.value
 	y_opt = y.value
 	return h, y_opt
+
+def ellipsoidal_support_function(P, x):
+	"""
+	Evaluate the support function of the hyper-ellipsoid P = {x : x^TPx <= 1} at x:
+	h_P(x) = sup_y x^Ty s.t. y \in P
+	"""
+	y = cp.Variable(len(x))
+	prob = cp.Problem(cp.Maximize(x.T @ y), [cp.quad_form(y, P) <= 1])
+	prob.solve()
+	h = prob.value
+	y_opt = y.value
+	return h, y_opt
+
 
 def minkowski_sum(A, B):
 	"""
@@ -81,10 +94,15 @@ def minkowski_sum(A, B):
 
 def pontryagin_difference(A, B):
 	"""
-	Computes the Pontryagin Difference of the Polytopes A and B using a support function algorithm
+	Computes the Pontryagin Difference of the sets A and B using a support function algorithm
+	- A is a Polytope instance
+	- B is either a Polytope instance, or a square matrix defining the set {x : x^TBx <= 1}
 	returns Polytope S = {x | x + y \in A \forall y \in B}
 	"""
-	support_vec = np.array(list(zip(*[support_function(B, a) for a in np.rollaxis(A.A, 0)]))[0])
+	if isinstance(B, polytope.Polytope):
+		support_vec = np.array(list(zip(*[polytopic_support_function(B, a) for a in np.rollaxis(A.A, 0)]))[0])
+	else:
+		support_vec = np.array(list(zip(*[ellipsoidal_support_function(B, a) for a in np.rollaxis(A.A, 0)]))[0])
 	S = polytope.Polytope(A.A, A.b - support_vec)
 	return S
 
