@@ -58,13 +58,18 @@ def polytopic_support_function(P, x):
 	y_opt = y.value
 	return h, y_opt
 
-def ellipsoidal_support_function(P, x):
+def ellipsoidal_support_function(P, x, K=None):
 	"""
 	Evaluate the support function of the hyper-ellipsoid P = {x : x^TPx <= 1} at x:
 	h_P(x) = sup_y x^Ty s.t. y \in P
 	"""
-	y = cp.Variable(len(x))
-	prob = cp.Problem(cp.Maximize(x.T @ y), [cp.quad_form(y, P) <= 1])
+	if K is None:
+		K = np.eye(len(x))
+		y = cp.Variable(len(x))
+	else: 
+		y = cp.Variable(K.shape[1])
+
+	prob = cp.Problem(cp.Maximize(x.T @ K @ y), [cp.quad_form(y, P) <= 1])
 	prob.solve()
 	h = prob.value
 	y_opt = y.value
@@ -92,7 +97,7 @@ def minkowski_sum(A, B):
 	S = polytope.reduce(S)
 	return S
 
-def pontryagin_difference(A, B):
+def pontryagin_difference(A, B, K=None):
 	"""
 	Computes the Pontryagin Difference of the sets A and B using a support function algorithm
 	- A is a Polytope instance
@@ -102,7 +107,7 @@ def pontryagin_difference(A, B):
 	if isinstance(B, polytope.Polytope):
 		support_vec = np.array(list(zip(*[polytopic_support_function(B, a) for a in np.rollaxis(A.A, 0)]))[0])
 	else:
-		support_vec = np.array(list(zip(*[ellipsoidal_support_function(B, a) for a in np.rollaxis(A.A, 0)]))[0])
+		support_vec = np.array(list(zip(*[ellipsoidal_support_function(B, a, K) for a in np.rollaxis(A.A, 0)]))[0])
 	S = polytope.Polytope(A.A, A.b - support_vec)
 	return S
 
@@ -179,7 +184,7 @@ def minimal_invariant(A, W, n=15, epsilon=.01, max_k=200):
 	M_hat = W 
 	for i in range(1, n + 1):
 		AW = poly_transform(W, np.linalg.matrix_power(A, i))
-		if AW.volume != 0:
+		if AW.A.shape[0] == W.A.shape[0]:
 			M_hat = minkowski_sum(M_hat, AW)
 		else:
 			break
@@ -212,6 +217,30 @@ def robust_maximal_invariant(X, W, M, A, B=None, K=None, U=None):
 		RO_nominal = maximal_invariant(X_bar, A, B=B, K=K, U=U_bar)
 	RO_total = minkowski_sum(RO_nominal, M)	
 	return RO_nominal, RO_total	
+
+
+def compute_polytope_reachable_sets(A, W, N):
+	"""
+	Compute the N-step reachable sets for the system x_{t+1} = Ax_t + w_t, w \in W:
+	returns [W, W + AW, W + AW + A^2W, ..., osum{i=0}^n A^iW]
+	"""
+	reachable_sets = [W] * N
+	for i in range(1, N):
+		AR = poly_transform(reachable_sets[i-1], A)
+		reachable_sets[i] = minkowski_sum(reachable_sets[i], AR)
+	return reachable_sets
+
+def compute_covariances_reachable_sets(A, W, N):
+	"""
+	Compute the covariances of the N-step Probabilistic Reachable Sets of the system x_{t+1} = Ax_t + w_t
+	Where cov(w_t) = W
+	returns [W, AWA^T, ...]
+	"""
+	reachable_covariances = [W] * N
+	for i in range(1, N):
+		AR = A @ reachable_covariances[i-1] @ A^T
+		reachable_covariances[i] += AR
+	return reachable_covariances
 
 def compute_traj_cost(x_traj, u_traj, h):
 	# import pdb; pdb.set_trace()
@@ -264,4 +293,5 @@ def split_n(n, k):
 	split = [p] * k
 	split[0] += n - p * k
 	return split
+
 

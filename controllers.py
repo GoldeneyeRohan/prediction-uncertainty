@@ -4,6 +4,7 @@ import cvxpy as cp
 import mpc_solvers
 import numpy as np
 import polytope
+import scipy
 from abc import ABC, abstractmethod
 import time
 
@@ -419,6 +420,95 @@ class LTI_Tube_LMPC(LTI_LMPC):
 			u =  - self.K @ (x0 - x_0) + u_nominal
 			return u
 		else:
+			return None
+
+class LTI_Robust_LMPC(LTI_LMPC):
+	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, disturbance_set, n_safe_set=None, minimal_n=15):
+		super(LTI_Robust_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set)
+		K, P, _ = controlpy.synthesis.controller_lqr_discrete_time(self.A, self.B, self.Q, self.R)
+		self.K = K
+		self.disturbance_set = disturbance_set
+		self.minimal_n = minimal_n
+		self.minimal_invariant = None
+
+	def build(self):
+		if not self.ss_size_fixed:
+			self.n_safe_set = np.sum([l.shape[1] for l in self.traj_list])
+
+		if self.minimal_invariant is None:
+			W = polytope.Polytope(self.disturbance_set[0], self.disturbance_set[1])
+			M = control_utils.minimal_invariant(self.A - self.B @ self.K, W, n=self.minimal_n)
+
+			X = polytope.Polytope(self.state_constraints[0], self.state_constraints[1])
+			U = polytope.Polytope(self.input_constraints[0], self.input_constraints[1])
+		
+			X_bar = control_utils.pontryagin_difference(X, M)
+			KM = control_utils.poly_transform(M, self.K)
+			U_bar = control_utils.pontryagin_difference(U, KM)
+
+			self.state_constraints = (X_bar.A, X_bar.b)
+			self.input_constraints = (U_bar.A, U_bar.b)
+			self.minimal_invariant = (M.A, M.b)
+
+		self.build_solver()
+		self.set_basic_parameters()
+
+	def solve(self, x0):
+		if self.i == 0:
+			x_0 = x0
+			u_nominal = self.solve_ftocp(x0)
+		else: 
+			x_0 = self.x_traj[:,1].value
+			u_nominal = self.solve_ftocp(x_0)
+
+		if u_nominal is not None:
+			u = u_nominal - self.K @ (x0 - x_0)
+			self.i += 1
+			return u 
+		else: 
+			return None
+
+class LTI_Stochastic_LMPC(LTI_LMPC):
+	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, disturbance_covariance, n_safe_set=None):
+		super(LTI_Stochastic_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set)
+		K, P, _ = controlpy.synthesis.controller_lqr_discrete_time(self.A, self.B, self.Q, self.R)
+		self.K = K
+		self.disturbance_covariance = disturbance_covariance
+		self.minimal_invariant_covariance = None
+
+	def build(self):
+		if not self.ss_size_fixed:
+			self.n_safe_set = np.sum([l.shape[1] for l in self.traj_list])
+
+		if self.minimal_invariant_covariance is None:
+			Sigma_inf = scipy.linalg.solve_discrete_lyapunov(self.A - self.B @ self.K, self.disturbance_covariance)
+
+			X = polytope.Polytope(self.state_constraints[0], self.state_constraints[1])
+			U = polytope.Polytope(self.input_constraints[0], self.input_constraints[1])
+		
+			X_bar = control_utils.pontryagin_difference(X, np.linalg.inv(Sigma_inf))
+			U_bar = control_utils.pontryagin_difference(U, np.linalg.inv(Sigma_inf), K=self.K)
+
+			self.state_constraints = (X_bar.A, X_bar.b)
+			self.input_constraints = (U_bar.A, U_bar.b)
+			self.minimal_invariant_covariance = Sigma_inf
+
+		self.build_solver()
+		self.set_basic_parameters()
+
+	def solve(self, x0):
+		if self.i == 0:
+			x_0 = x0
+			u_nominal = self.solve_ftocp(x0)
+		else: 
+			x_0 = self.x_traj[:,1].value
+			u_nominal = self.solve_ftocp(x_0)
+
+		if u_nominal is not None:
+			u = u_nominal - self.K @ (x0 - x_0)
+			self.i += 1
+			return u 
+		else: 
 			return None
 
 class LTV_LMPC(LTI_LMPC):
