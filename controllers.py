@@ -691,3 +691,123 @@ class LTV_Tube_LMPC(LTV_LMPC):
 
 	def solve(self, x0):
 		return LTI_Tube_LMPC.solve(self, x0)
+
+class SCP_Traj_Opt(Controller):
+
+	def __init__(self, N, Q, R, state_reference, state_constraints, input_constraints, tolerance=1e-3, regularization=1e-2):
+		super(SCP_Traj_Opt, self).__init__(np.NaN)
+		self.Q = Q
+		self.R = R
+		self.P = Q
+		self.N = N
+
+		self.A = None
+		self.B = None
+		self.C = None
+
+		self.state_reference = state_reference
+		self.input_reference = np.zeros(R.shape[0])
+
+		self.state_constraints = state_constraints
+		self.input_constraints = input_constraints
+		self.terminal_constraint = state_constraints
+		
+		self.x_traj = None
+		self.u_traj = None
+		self.slack = None
+		self.terminal_slack = None
+		self.problem = None
+		self.problem_parameters = None
+		self.x0 = None
+		self.cost = None
+		self.feasible = False
+		self.converged = False
+
+		self.solution_costs
+		self.tolerance = tolerance
+		self.regularization = regularization
+		self.traj_list = []
+		self.input_traj_list = []
+		self.slack_traj_list = []
+		self.terminal_slack_list = []
+		self.i = 0
+
+	def build_solver(self):
+		(x0, x_traj, u_traj, slack, terminal_slack,
+			A, B, C, 
+			state_reference, input_reference, 
+			state_constraints, input_constraints, 
+			terminal_constraint, problem) =  mpc_solvers.SCP_ftocp_solver(self.N, 
+													self.state_constraints[0].shape[0], 
+													self.input_constraints[0].shape[0], 
+													self.terminal_constraint[0].shape[0], 
+													self.Q, self.R, self.P,
+													regularization=self.regularization)
+
+		self.x_traj = x_traj
+		self.u_traj = u_traj
+		self.slack = slack
+		self.terminal_slack = terminal_slack
+		self.problem = problem
+		self.problem_parameters = {MODEL_A:A, MODEL_B:B, MODEL_C:C, 
+									STATE_REFERENCE:state_reference, INPUT_REFERENCE:input_reference, 
+									STATE_CONSTRAINTS:state_constraints, INPUT_CONSTRAINTS:input_constraints, 
+									TERMINAL_CONSTRAINT:terminal_constraint}
+		self.x0 = x0
+		self.cost = None
+		self.feasible = True
+
+	def build(self, x_init_traj, u_init_traj):
+		self.traj_list.append(x_init_traj)
+		self.input_traj_list.append(u_init_traj)
+		self.slack_traj_list.append(None)
+		self.terminal_slack_list.append(None)
+		self.build_solver()
+		self.set_basic_parameters()
+
+	def set_basic_parameters(self):
+		for i in range(self.N):
+			self.problem_parameters[STATE_REFERENCE][i].value = self.state_reference
+			self.problem_parameters[INPUT_REFERENCE][i].value = self.input_reference
+			self.problem_parameters[STATE_CONSTRAINTS][i][0].value = self.state_constraints[0]
+			self.problem_parameters[STATE_CONSTRAINTS][i][1].value = self.state_constraints[1]
+			self.problem_parameters[INPUT_CONSTRAINTS][i][0].value = self.input_constraints[0]
+			self.problem_parameters[INPUT_CONSTRAINTS][i][1].value = self.input_constraints[1]
+
+		self.problem_parameters[STATE_REFERENCE][self.N].value = self.state_reference
+		self.problem_parameters[TERMINAL_CONSTRAINT][0].value = self.terminal_constraint[0]
+		self.problem_parameters[TERMINAL_CONSTRAINT][1].value = self.terminal_constraint[1]
+
+	def solve_ftocp(self):
+		"""
+		Solves the finite time optimal control problem for mpc
+		returns predicted state and input trajectories, cost function, and feasibility of the problem
+		"""
+		self.problem.solve(solver=cp.ECOS)
+		
+		if self.problem.status is not "infeasible": 
+			self.cost = self.problem.value
+			self.feasible = True
+			return self.x_traj.value, self.u_traj.value
+		else: 
+			self.feasible = False
+			return None, None
+
+	def solve_iteration(A, B):
+		for i in range(self.N):
+			self.problem_parameters[MODEL_A][i].value = A[i]
+			self.problem_parameters[MODEL_B][i].value = B[i]
+			self.problem_parameters[MODEL_C][i].value = self.x_traj_list[-1][:,i+1]
+
+		x_traj, u_traj = self.solve_ftocp()
+
+		if self.feasible:
+			self.i += 1
+			self.converged = np.all(np.linalg.norm(x_traj, axis=0) <= self.tolerance) and np.all(np.linalg.norm(u_traj, axis=0) <= self.tolerance)  
+
+		return x_traj, u_traj, self.converged
+
+
+
+
+
