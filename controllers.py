@@ -88,7 +88,7 @@ class LTI_MPC_Controller(Controller):
 	- constant terminal constraint
 	"""
 
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints):
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints):
 		super(LTI_MPC_Controller, self).__init__(np.NaN)
 
 		self.Q = Q
@@ -101,7 +101,7 @@ class LTI_MPC_Controller(Controller):
 		self.C = C
 
 		self.state_reference = state_reference
-		self.input_reference = np.zeros(R.shape[0])
+		self.input_reference = input_reference
 
 		self.state_constraints = state_constraints
 		self.input_constraints = input_constraints
@@ -180,8 +180,8 @@ class LTI_MPC_Tracker(LTI_MPC_Controller):
 	"""
 	"""
 
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints):
-		super(LTI_MPC_Tracker, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints):
+		super(LTI_MPC_Tracker, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints)
 		self.P = Q
 		self.terminal_constraint = self.state_constraints
 
@@ -198,8 +198,8 @@ class LTI_MPC(LTI_MPC_Controller):
 	"""
 	"""
 
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints):
-		super(LTI_MPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints):
+		super(LTI_MPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints)
 
 	def build(self):
 		K, P, _ = controlpy.synthesis.controller_lqr_discrete_time(self.A, self.B, self.Q, self.R)
@@ -219,8 +219,8 @@ class LTI_MPC(LTI_MPC_Controller):
 
 class LTI_Tube_MPC(LTI_MPC_Controller):
 
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints):
-		super(LTI_Tube_MPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints):
+		super(LTI_Tube_MPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints)
 		self.K = None
 		self.init_constraint = None
 
@@ -289,8 +289,8 @@ class LTI_Tube_MPC(LTI_MPC_Controller):
 
 class LTI_LMPC(LTI_MPC_Controller):
 
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set=None):
-		super(LTI_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set=None):
+		super(LTI_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints)
 		self.ss_size_fixed = n_safe_set is not None
 		self.n_safe_set = n_safe_set
 		self.safe_set = None
@@ -349,8 +349,8 @@ class LTI_LMPC(LTI_MPC_Controller):
 
 class LTI_Tube_LMPC(LTI_LMPC):
 
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, disturbance_set, n_safe_set=None, minimal_n=15):
-		super(LTI_Tube_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set=n_safe_set)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, disturbance_set, n_safe_set=None, minimal_n=15):
+		super(LTI_Tube_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set=n_safe_set)
 		K, P, _ = controlpy.synthesis.controller_lqr_discrete_time(self.A, self.B, self.Q, self.R)
 		self.K = K
 		self.init_constraint = None
@@ -423,8 +423,8 @@ class LTI_Tube_LMPC(LTI_LMPC):
 			return None
 
 class LTI_Robust_LMPC(LTI_LMPC):
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, disturbance_set, n_safe_set=None, minimal_n=15):
-		super(LTI_Robust_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, disturbance_set, n_safe_set=None, minimal_n=15):
+		super(LTI_Robust_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set)
 		K, P, _ = controlpy.synthesis.controller_lqr_discrete_time(self.A, self.B, self.Q, self.R)
 		self.K = K
 		self.disturbance_set = disturbance_set
@@ -469,8 +469,8 @@ class LTI_Robust_LMPC(LTI_LMPC):
 			return None
 
 class LTI_Stochastic_LMPC(LTI_LMPC):
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, disturbance_covariance, n_safe_set=None):
-		super(LTI_Stochastic_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, disturbance_covariance, n_safe_set=None):
+		super(LTI_Stochastic_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set)
 		K, P, _ = controlpy.synthesis.controller_lqr_discrete_time(self.A, self.B, self.Q, self.R)
 		self.K = K
 		self.disturbance_covariance = disturbance_covariance
@@ -513,8 +513,8 @@ class LTI_Stochastic_LMPC(LTI_LMPC):
 
 class LTV_LMPC(LTI_LMPC):
 
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set=None):
-		super(LTV_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set=n_safe_set)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set=None):
+		super(LTV_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set=n_safe_set)
 		self.A = [A] * self.N 
 		self.B = [B] * self.N 
 		self.C = [C] * self.N
@@ -541,8 +541,8 @@ class LTV_LMPC(LTI_LMPC):
 
 class LBLMPC(LTI_Tube_LMPC):
 
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, disturbance_set, n_safe_set=None, minimal_n=15):
-		super(LBLMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, disturbance_set, n_safe_set=None, minimal_n=minimal_n)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, disturbance_set, n_safe_set=None, minimal_n=15):
+		super(LBLMPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, disturbance_set, n_safe_set=None, minimal_n=minimal_n)
 		self.A_hat = [A] * self.N
 		self.B_hat = [B] * self.N
 		self.C_hat = [C] * self.N
@@ -599,8 +599,8 @@ class LBLMPC(LTI_Tube_LMPC):
 
 class Local_LTV_LMPC(LTV_LMPC):
 
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set_it, n_safe_set):
-		super(Local_LTV_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set=n_safe_set)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set_it, n_safe_set):
+		super(Local_LTV_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set=n_safe_set)
 		self.n_safe_set_it = n_safe_set_it
 		self.x_ss = None
 
@@ -631,8 +631,8 @@ class Local_LTV_LMPC(LTV_LMPC):
 
 class True_LTV_LMPC(LTV_LMPC):
 
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints):
-		super(True_LTV_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set=0)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints):
+		super(True_LTV_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set=0)
 		self.min_ss_traj_length = 1e9
 
 	def add_trajectory(self, state_traj, input_traj, value_function):
@@ -657,8 +657,8 @@ class True_LTV_LMPC(LTV_LMPC):
 
 class LTV_Tube_LMPC(LTV_LMPC):
 
-	def __init__(self, A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, minimal_invariant, n_safe_set=None):
-		super(LTV_Tube_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, state_constraints, input_constraints, n_safe_set=n_safe_set)
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, minimal_invariant, n_safe_set=None):
+		super(LTV_Tube_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set=n_safe_set)
 		K, P, _ = controlpy.synthesis.controller_lqr_discrete_time(self.A[0], self.B[0], self.Q, self.R)
 		self.K = K
 		self.minimal_invariant = minimal_invariant
