@@ -692,6 +692,83 @@ class LTV_Tube_LMPC(LTV_LMPC):
 	def solve(self, x0):
 		return LTI_Tube_LMPC.solve(self, x0)
 
+class LTV_Robust_LMPC(LTV_LMPC):
+
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, minimal_invariant, n_safe_set=None):
+		super(LTV_Robust_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set=n_safe_set)
+		K, P, _ = controlpy.synthesis.controller_lqr_discrete_time(self.A[0], self.B[0], self.Q, self.R)
+		self.K = K
+		self.minimal_invariant = minimal_invariant
+		self.constraints_built = False
+
+	def build(self):
+		if not self.ss_size_fixed:
+			self.n_safe_set = np.sum([l.shape[1] for l in self.traj_list])
+
+		if not self.constraints_built:
+			M = polytope.Polytope(*self.minimal_invariant)
+			X = polytope.Polytope(self.state_constraints[0], self.state_constraints[1])
+			U = polytope.Polytope(self.input_constraints[0], self.input_constraints[1])
+		
+			X_bar = control_utils.pontryagin_difference(X, M)
+			KM = control_utils.poly_transform(M, self.K)
+			U_bar = control_utils.pontryagin_difference(U, KM)
+
+			self.state_constraints = (X_bar.A, X_bar.b)
+			self.input_constraints = (U_bar.A, U_bar.b)
+			self.constraints_built = True
+
+		self.build_solver()
+		self.set_basic_parameters()
+
+	def solve(self, x0):
+		return LTI_Robust_LMPC.solve(self, x0)
+
+class True_LTV_Robust_LMPC(True_LTV_LMPC):
+
+	def __init__(self, A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, minimal_invariant):
+		super(True_LTV_Robust_LMPC, self).__init__(A, B, C, N, Q, R, state_reference, input_reference, state_constraints, input_constraints)
+		K, P, _ = controlpy.synthesis.controller_lqr_discrete_time(self.A[0], self.B[0], self.Q, self.R)
+		self.K = K
+		self.minimal_invariant = minimal_invariant
+		self.constraints_built = False
+
+	def build(self):
+		if not self.ss_size_fixed:
+			self.n_safe_set = np.sum([l.shape[1] for l in self.traj_list])
+
+		if not self.constraints_built:
+			M = polytope.Polytope(*self.minimal_invariant)
+			X = polytope.Polytope(self.state_constraints[0], self.state_constraints[1])
+			U = polytope.Polytope(self.input_constraints[0], self.input_constraints[1])
+		
+			X_bar = control_utils.pontryagin_difference(X, M)
+			KM = control_utils.poly_transform(M, self.K)
+			U_bar = control_utils.pontryagin_difference(U, KM)
+
+			self.state_constraints = (X_bar.A, X_bar.b)
+			self.input_constraints = (U_bar.A, U_bar.b)
+			self.constraints_built = True
+
+		self.build_solver()
+		self.set_basic_parameters()
+
+	def solve(self, x0):
+		self.safe_set.value, self.value_function.value = self.select_safe_set(self.i)
+		if self.i == 0:
+			x_0 = x0
+			u_nominal = self.solve_ftocp(x0)
+		else: 
+			x_0 = self.x_traj[:,1].value
+			u_nominal = self.solve_ftocp(x_0)
+
+		if u_nominal is not None:
+			u = u_nominal - self.K @ (x0 - x_0)
+			self.i += 1
+			return u 
+		else: 
+			return None
+	
 class Open_Loop_Controller(Controller):
 
 	def __init__(self):
@@ -706,3 +783,4 @@ class Open_Loop_Controller(Controller):
 		u = self.u_traj[:,self.i]
 		self.i += 1
 		return u
+	
