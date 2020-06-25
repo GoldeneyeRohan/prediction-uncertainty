@@ -1,5 +1,6 @@
 import controlpy
 import control_utils
+import controllers
 import cvxpy as cp
 import mpc_solvers
 import numpy as np
@@ -40,7 +41,7 @@ class Traj_Opt(ABC):
 
 class SCP_Traj_Opt(Traj_Opt):
 
-	def __init__(self, N, Q, R, state_reference, state_constraints, input_constraints, tolerance=1e-3, regularization=1e2, solver="OSQP"):
+	def __init__(self, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, tolerance=1e-3, regularization=1e2, solver="OSQP"):
 		super(SCP_Traj_Opt, self).__init__(np.NaN)
 		self.Q = Q
 		self.R = R
@@ -52,7 +53,7 @@ class SCP_Traj_Opt(Traj_Opt):
 		self.C = None
 
 		self.state_reference = state_reference
-		self.input_reference = np.zeros(R.shape[0])
+		self.input_reference = input_reference
 
 		self.state_constraints = state_constraints
 		self.input_constraints = input_constraints
@@ -71,7 +72,9 @@ class SCP_Traj_Opt(Traj_Opt):
 		self.tolerance = tolerance
 		self.regularization = regularization
 		self.traj_list = []
+		self.backward_traj_list = []
 		self.input_traj_list = []
+		self.backward_input_traj_list = []
 		self.slack_traj_list = []
 		self.terminal_slack_list = []
 		self.solution_costs = []
@@ -103,12 +106,7 @@ class SCP_Traj_Opt(Traj_Opt):
 		self.cost = None
 		self.feasible = True
 
-	def build(self, x_init_traj, u_init_traj, init_traj_cost):
-		self.traj_list.append(x_init_traj)
-		self.input_traj_list.append(u_init_traj)
-		self.slack_traj_list.append(None)
-		self.terminal_slack_list.append(None)
-		self.solution_costs.append(init_traj_cost)
+	def build(self):
 		self.build_solver()
 		self.set_basic_parameters()
 
@@ -140,12 +138,15 @@ class SCP_Traj_Opt(Traj_Opt):
 			self.feasible = False
 			return None, None
 
-	def solve_iteration(self, A, B):
+	def solve_iteration(self, forward_x_traj, forward_u_traj, A, B):
+		self.traj_list.append(forward_x_traj)
+		self.input_traj_list.append(forward_u_traj)
 		for i in range(self.N):
 			self.problem_parameters[MODEL_A][i].value = A[i]
 			self.problem_parameters[MODEL_B][i].value = B[i]
-		self.problem_parameters[LIN_TRAJ].value = self.traj_list[-1]
-		self.problem_parameters[LIN_INPUT_TRAJ].value  = self.input_traj_list[-1]
+		self.problem_parameters[LIN_TRAJ].value = forward_x_traj
+		self.problem_parameters[LIN_INPUT_TRAJ].value  = forward_u_traj
+
 
 		dx, du = self.solve_ftocp()
 
@@ -153,11 +154,16 @@ class SCP_Traj_Opt(Traj_Opt):
 			x_traj = self.traj_list[-1] + dx
 			u_traj = self.input_traj_list[-1] + du
 			self.i += 1
-			self.traj_list.append(x_traj)
-			self.input_traj_list.append(u_traj)
+			self.backward_traj_list.append(x_traj)
+			self.backward_input_traj_list.append(u_traj)
 			self.slack_traj_list.append(self.slack.value)
 			self.terminal_slack_list.append(self.terminal_slack.value)
 			self.solution_costs.append(self.cost)
 			self.converged = np.all(np.linalg.norm(dx, axis=0) <= self.tolerance) and np.all(np.linalg.norm(du, axis=0) <= self.tolerance)  
 
 		return x_traj, u_traj, self.converged
+
+	def get_controller(self):
+		controller = controllers.Open_Loop_Controller()
+		controller.build(self.backward_input_traj_list[-1])
+		return controller
