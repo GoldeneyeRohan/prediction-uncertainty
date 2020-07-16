@@ -2,6 +2,7 @@ import controlpy
 import control_utils
 import cvxpy as cp
 import mpc_solvers
+import trajectory_optimizers
 import numpy as np
 import polytope
 import scipy
@@ -608,6 +609,7 @@ class Local_LTV_LMPC(LTV_LMPC):
 		n_trajectories = len(self.traj_list)
 		points_per_trajectory = control_utils.split_n(self.n_safe_set, min(n_trajectories, self.n_safe_set_it))
 		best_iteration_order = np.argsort([q[0] for q in self.value_func_list])
+		# print(points_per_trajectory)
 		(safe_set, input_safe_set, value_function, successor_safe_set) = zip(
 		 			*[control_utils.select_points(x, n, self.traj_list[traj_index], self.input_traj_list[traj_index], self.value_func_list[traj_index]) 
 		 					for n, traj_index in zip(points_per_trajectory, best_iteration_order)])
@@ -615,6 +617,7 @@ class Local_LTV_LMPC(LTV_LMPC):
 		safe_set = np.hstack(safe_set)
 		input_safe_set = np.hstack(input_safe_set)
 		value_function = np.hstack(value_function)
+		# print(safe_set.shape, value_function.shape)
 		successor_safe_set = np.hstack(successor_safe_set)
 
 		return safe_set, input_safe_set, value_function, successor_safe_set
@@ -784,3 +787,59 @@ class Open_Loop_Controller(Controller):
 		self.i += 1
 		return u
 	
+class Local_SCP_LMPC(Local_LTV_LMPC):
+
+	def __init__(self, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set_it, n_safe_set, n_iter=10, tolerance=1e-3, regularization=1e2):
+		super(Local_SCP_LMPC, self).__init__(None, None, None, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set_it, n_safe_set)
+		self.n_iter = n_iter
+		self.tolerance = tolerance
+		self.regularization = regularization
+		self.traj_opt = trajectory_optimizers.SCP_LMPC_Traj_Opt(self.N, self.Q, self.R, 
+												self.state_reference, self.input_reference, 
+												self.state_constraints, self.input_constraints, 
+												self.n_safe_set, 
+												tolerance=self.tolerance, regularization=self.regularization, solver="ECOS")
+
+	def build(self):
+		self.traj_opt.build()
+		self.multipliers = self.traj_opt.multipliers
+		self.safe_set = self.traj_opt.safe_set
+		self.value_function = self.traj_opt.value_function
+		self.slack = self.traj_opt.slack
+		self.terminal_slack = self.traj_opt.terminal_slack
+		self.cost = self.traj_opt.cost
+		self.feasible = self.traj_opt.feasible
+		self.problem = self.traj_opt.problem
+		self.problem_parameters = None
+		self.x_traj = None
+		self.u_traj = None
+
+	def solve(self, x0, get_linearization, estimate_trajectory):
+		# import pdb; pdb.set_trace()
+		x_ss = self.x_ss if (self.x_ss is not None and self.i != 0) else self.traj_list[-1][:, self.N]
+		self.safe_set.value, _, self.value_function.value, successor_safe_set = self.select_safe_set(x_ss)
+		
+		if self.i != 0:
+			x_traj = self.x_traj
+			x_traj[:,0] = x0
+			x_traj[:,1:-1] = x_traj[:,2:]
+			x_traj[:,-1] = x_ss
+			u_traj = self.u_traj
+		else:
+			x_traj = self.traj_list[-1][:,:self.N + 1]
+			u_traj = self.input_traj_list[-1][:,:self.N]
+
+		for k in range(self.n_iter):
+			A, B, _ = get_linearization(x_traj, u_traj)
+			x_opt_traj, u_opt_traj, converged = self.traj_opt.solve_iteration(x_traj, u_traj, A, B)
+			x_traj, u_traj = estimate_trajectory(x0, u_opt_traj)
+
+		self.feasible = self.traj_opt.feasible
+		self.cost = self.traj_opt.cost
+
+		if self.feasible:
+			self.x_traj = x_traj
+			self.u_traj = u_traj
+			self.x_ss = successor_safe_set @ self.multipliers.value 
+		self.i += 1
+		return self.u_traj[:,0]

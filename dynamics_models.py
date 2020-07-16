@@ -155,3 +155,25 @@ class PlanarQuadrotor(NonLinearSystem):
         Ju[5,0] = self.l / self.I
         Ju[5,1] =  - self.l / self.I
         return Jx, Ju
+
+# class KinematicBicycle(NonLinearSystem):
+#     """
+#     state = [x, y, theta], input = [v, delta]
+#     dx = v*cos(theta + beta)
+#     dy = v*sin(theta + beta)
+#     dtheta = 2v/l * sin(beta)
+#     beta = atan(0.5 * tan(delta))
+#     """
+
+#     def __init__(self, init_state, l, dt, process_noise, use_ode_integrator=True):
+#         supet(KinematicBicycle, self).__init__(3, 2, init_state, dt, process_noise, use_ode_integrator=use_ode_integrator)
+#         self.l = l
+
+#     def f_continuous(self, state, u):
+#         x, y, theta = state
+#         v, delta = u
+
+#         beta = np.arctan2(np.tan(delta), 2)
+#         dx = np.cos(theta + beta)
+#         dy = np.sin(theta + beta)
+#         dtheta = ((2 * v) / self.l) * np.sin(beta)

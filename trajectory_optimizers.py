@@ -109,6 +109,8 @@ class SCP_Traj_Opt(Traj_Opt):
 	def build(self):
 		self.build_solver()
 		self.set_basic_parameters()
+		self.problem_parameters[TERMINAL_CONSTRAINT][0].value = self.terminal_constraint[0]
+		self.problem_parameters[TERMINAL_CONSTRAINT][1].value = self.terminal_constraint[1]
 
 	def set_basic_parameters(self):
 		for i in range(self.N):
@@ -120,8 +122,6 @@ class SCP_Traj_Opt(Traj_Opt):
 			self.problem_parameters[INPUT_CONSTRAINTS][i][1].value = self.input_constraints[1]
 
 		self.problem_parameters[STATE_REFERENCE][self.N].value = self.state_reference
-		self.problem_parameters[TERMINAL_CONSTRAINT][0].value = self.terminal_constraint[0]
-		self.problem_parameters[TERMINAL_CONSTRAINT][1].value = self.terminal_constraint[1]
 
 	def solve_ftocp(self):
 		"""
@@ -147,7 +147,6 @@ class SCP_Traj_Opt(Traj_Opt):
 		self.problem_parameters[LIN_TRAJ].value = forward_x_traj
 		self.problem_parameters[LIN_INPUT_TRAJ].value  = forward_u_traj
 
-
 		dx, du = self.solve_ftocp()
 
 		if self.feasible:
@@ -167,3 +166,46 @@ class SCP_Traj_Opt(Traj_Opt):
 		controller = controllers.Open_Loop_Controller()
 		controller.build(self.backward_input_traj_list[-1])
 		return controller
+
+class SCP_LMPC_Traj_Opt(SCP_Traj_Opt):
+
+	def __init__(self, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set, tolerance=1e-3, regularization=1e2, solver="OSQP"):
+		super(SCP_LMPC_Traj_Opt, self).__init__(N, Q, R, state_reference, input_reference, state_constraints, input_constraints,
+																 tolerance=tolerance, regularization=regularization, solver=solver)
+		self.n_safe_set = n_safe_set
+		self.P = None
+		self.safe_set = None
+		self.value_function = None
+
+	def build_solver(self):
+		(x_param, u_param, dx, du,
+			multipliers, slack, terminal_slack, 
+			safe_set, value_function, A, B, 
+			state_reference, input_reference, 
+			state_constraints, input_constraints, problem) = mpc_solvers.SCP_LMPC_ftocp_solver(self.N, self.n_safe_set, 
+													self.state_constraints[0].shape[0], 
+													self.input_constraints[0].shape[0], 
+													self.Q, self.R,
+													regularization=self.regularization)
+
+		self.dx = dx
+		self.du = du
+		self.multipliers = multipliers
+		self.safe_set = safe_set
+		self.value_function = value_function
+		self.slack = slack
+		self.terminal_slack = terminal_slack
+		self.problem = problem
+		self.problem_parameters = {LIN_TRAJ:x_param, LIN_INPUT_TRAJ:u_param, MODEL_A:A, MODEL_B:B, 
+									STATE_REFERENCE:state_reference, INPUT_REFERENCE:input_reference, 
+									STATE_CONSTRAINTS:state_constraints, INPUT_CONSTRAINTS:input_constraints}
+		self.cost = None
+		self.feasible = True
+
+	def build(self):
+		self.build_solver()
+		self.set_basic_parameters()
+
+	def set_safe_set(self, safe_set, value_function):
+		self.safe_set.value = safe_set
+		self.value_function.value = value_function

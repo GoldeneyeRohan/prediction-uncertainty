@@ -334,3 +334,46 @@ def SCP_ftocp_solver(N, m_state_constraints, m_input_constraints, m_terminal_set
 
 	return x_param, u_param, dx, du, slack, terminal_slack, A, B, state_reference, input_reference, state_limits, input_limits, terminal_set, problem
 
+def SCP_LMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_constraints, Q, R, slack_penalty=1e3, terminal_slack_penalty=1e3, regularization=1e2):
+	n = Q.shape[0]
+	m = R.shape[0]
+	slack_penalty = format_slack_penalty(slack_penalty, m_state_constraints, N)
+	terminal_slack_penalty = format_terminal_slack_penalty(terminal_slack_penalty, n)
+	terminal_slack_penalty = np.diag(terminal_slack_penalty)
+
+	# Decision Variables
+	dx, du, slack = get_decision_variables(n, m, N, m_state_constraints)
+	terminal_slack = cp.Variable(n)
+	multipliers = cp.Variable(n_safe_set, nonneg=True)
+
+	# Problem Parameters
+	x_param = cp.Parameter(dx.shape)
+	u_param = cp.Parameter(du.shape)
+	safe_set = cp.Parameter((n, n_safe_set))
+	value_function = cp.Parameter(n_safe_set)
+	C = [np.zeros(n) for i in range(N)]
+	A, B, _ = get_dynamics_parameters(n, m, N)
+	state_reference, input_reference = get_reference_parameters(n, m, N)
+	state_limits, input_limits = get_constraint_parameters(n, m, m_state_constraints, m_input_constraints, N)
+
+	# Constraints
+	init_constraint = [dx[:,0] == np.zeros(n)]
+	dynamics_constraints = get_dynamics_constraints(dx, du, A, B, C, N)
+	state_constraints = get_state_constraints(dx + x_param, slack, state_limits, N)
+	input_constraints = get_input_constraints(du + u_param, input_limits, N)
+	terminal_constraints = [safe_set @ multipliers + terminal_slack == x_param[:,-1] + dx[:,-1]]
+	terminal_constraints += [np.ones(n_safe_set) @ multipliers == 1]
+
+	# Cost function
+	trajectory_cost = get_trajectory_cost(dx + x_param, du + u_param, Q, R, input_reference, state_reference, N)
+	trajectory_cost += value_function @ multipliers
+	slack_cost = slack_penalty.T @ slack.flatten() + cp.quad_form(terminal_slack, terminal_slack_penalty)
+	regularization_cost = get_trajectory_cost(dx, du, np.eye(n) * regularization, np.eye(m) * regularization,
+												[np.zeros(m) for _ in range(N)], [np.zeros(n) for _ in range(N + 1)], N)
+	cost = cp.Minimize(trajectory_cost + slack_cost + regularization_cost)
+
+	# Solve and Return
+	constraints = dynamics_constraints + init_constraint + state_constraints + input_constraints + terminal_constraints
+	problem = cp.Problem(cost, constraints)
+
+	return x_param, u_param, dx, du, multipliers, slack, terminal_slack, safe_set, value_function, A, B, state_reference, input_reference, state_limits, input_limits, problem
