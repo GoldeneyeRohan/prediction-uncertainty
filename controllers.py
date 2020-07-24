@@ -295,6 +295,7 @@ class LTI_LMPC(LTI_MPC_Controller):
 		self.ss_size_fixed = n_safe_set is not None
 		self.n_safe_set = n_safe_set
 		self.safe_set = None
+		self.input_safe_set = None
 		self.value_function = None
 		self.multipliers = None
 		self.traj_list = []
@@ -342,6 +343,7 @@ class LTI_LMPC(LTI_MPC_Controller):
 		if not self.ss_size_fixed:
 			self.build()
 			self.safe_set.value = np.hstack(self.traj_list)
+			self.input_safe_set = np.hstack(self.input_traj_list)
 			self.value_function.value = np.hstack(self.value_func_list)
 
 	def solve(self, x0):
@@ -625,7 +627,7 @@ class Local_LTV_LMPC(LTV_LMPC):
 	def solve(self, x0):
 		# import pdb; pdb.set_trace()
 		x_ss = self.x_ss if (self.x_ss is not None and self.i != 0) else x0
-		self.safe_set.value, _, self.value_function.value, successor_safe_set = self.select_safe_set(x_ss)
+		self.safe_set.value, self.input_safe_set, self.value_function.value, successor_safe_set = self.select_safe_set(x_ss)
 		u = self.solve_ftocp(x0)
 		if self.feasible:
 			self.x_ss = successor_safe_set @ self.multipliers.value 
@@ -798,7 +800,7 @@ class Local_SCP_LMPC(Local_LTV_LMPC):
 												self.state_reference, self.input_reference, 
 												self.state_constraints, self.input_constraints, 
 												self.n_safe_set, 
-												tolerance=self.tolerance, regularization=self.regularization, solver="ECOS")
+												tolerance=self.tolerance, regularization=self.regularization, solver="OSQP")
 
 	def build(self):
 		self.traj_opt.build()
@@ -817,22 +819,32 @@ class Local_SCP_LMPC(Local_LTV_LMPC):
 	def solve(self, x0, get_linearization, estimate_trajectory):
 		# import pdb; pdb.set_trace()
 		x_ss = self.x_ss if (self.x_ss is not None and self.i != 0) else self.traj_list[-1][:, self.N]
-		self.safe_set.value, _, self.value_function.value, successor_safe_set = self.select_safe_set(x_ss)
+		self.safe_set.value, self.input_safe_set, self.value_function.value, successor_safe_set = self.select_safe_set(x_ss)
 		
 		if self.i != 0:
-			x_traj = self.x_traj
+			x_traj = np.zeros(self.x_traj.shape)
 			x_traj[:,0] = x0
-			x_traj[:,1:-1] = x_traj[:,2:]
+			x_traj[:,1:-1] = self.x_traj[:,2:]
 			x_traj[:,-1] = x_ss
-			u_traj = self.u_traj
+			u_traj = np.vstack((self.u_traj[:,1:].T, self.input_safe_set @ self.multipliers.value)).T
 		else:
 			x_traj = self.traj_list[-1][:,:self.N + 1]
 			u_traj = self.input_traj_list[-1][:,:self.N]
 
 		for k in range(self.n_iter):
-			A, B, _ = get_linearization(x_traj, u_traj)
+			# x_ss = self.x_ss if (self.x_ss is not None and self.i != 0) else self.traj_list[-1][:, self.N]
+			# self.safe_set.value, self.input_safe_set, self.value_function.value, successor_safe_set = self.select_safe_set(x_ss)
+			A, B, _ = get_linearization(self.x_traj[:,:-1], u_traj)
+			import pdb; pdb.set_trace()
+			
 			x_opt_traj, u_opt_traj, converged = self.traj_opt.solve_iteration(x_traj, u_traj, A, B)
-			x_traj, u_traj = estimate_trajectory(x0, u_opt_traj)
+			# print(converged)
+			# print(np.linalg.norm(u_opt_traj - u_traj, axis=0))
+			# x_traj, u_traj = estimate_trajectory(x0, u_opt_traj)
+			x_traj, u_traj = (x_opt_traj, u_opt_traj)
+			print(np.all(x_traj[:,0] == x0))
+			# print(np.linalg.norm(x_opt_traj - x_traj, axis=0))
+
 
 		self.feasible = self.traj_opt.feasible
 		self.cost = self.traj_opt.cost
@@ -841,5 +853,6 @@ class Local_SCP_LMPC(Local_LTV_LMPC):
 			self.x_traj = x_traj
 			self.u_traj = u_traj
 			self.x_ss = successor_safe_set @ self.multipliers.value 
+			# self.traj_opt.reset()
 		self.i += 1
 		return self.u_traj[:,0]

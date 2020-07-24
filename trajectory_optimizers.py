@@ -209,3 +209,14 @@ class SCP_LMPC_Traj_Opt(SCP_Traj_Opt):
 	def set_safe_set(self, safe_set, value_function):
 		self.safe_set.value = safe_set
 		self.value_function.value = value_function
+
+	def reset(self):
+		self.i = 0
+		self.traj_list = []
+		self.backward_traj_list = []
+		self.input_traj_list = []
+		self.backward_input_traj_list = []
+		self.slack_traj_list = []
+		self.terminal_slack_list = []
+		self.solution_costs = []
+

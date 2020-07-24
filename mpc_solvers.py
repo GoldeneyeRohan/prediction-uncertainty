@@ -358,7 +358,7 @@ def SCP_LMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_constraint
 
 	# Constraints
 	init_constraint = [dx[:,0] == np.zeros(n)]
-	dynamics_constraints = get_dynamics_constraints(dx, du, A, B, C, N)
+	dynamics_constraints = get_dynamics_constraints(dx + x_param, du + u_param, A, B, C, N)
 	state_constraints = get_state_constraints(dx + x_param, slack, state_limits, N)
 	input_constraints = get_input_constraints(du + u_param, input_limits, N)
 	terminal_constraints = [safe_set @ multipliers + terminal_slack == x_param[:,-1] + dx[:,-1]]
@@ -370,7 +370,7 @@ def SCP_LMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_constraint
 	slack_cost = slack_penalty.T @ slack.flatten() + cp.quad_form(terminal_slack, terminal_slack_penalty)
 	regularization_cost = get_trajectory_cost(dx, du, np.eye(n) * regularization, np.eye(m) * regularization,
 												[np.zeros(m) for _ in range(N)], [np.zeros(n) for _ in range(N + 1)], N)
-	cost = cp.Minimize(trajectory_cost + slack_cost + regularization_cost)
+	cost = cp.Minimize(trajectory_cost + slack_cost)# + regularization_cost)
 
 	# Solve and Return
 	constraints = dynamics_constraints + init_constraint + state_constraints + input_constraints + terminal_constraints

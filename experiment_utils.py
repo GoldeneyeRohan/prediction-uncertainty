@@ -38,6 +38,8 @@ def sim_traj(vehicle, controller, input_limits, episode_length, model_callback=N
     x_pred_trajs = []
     u_pred_trajs = []
     
+    multipliers = []
+
     slacks = []
     terminal_slacks = []
     
@@ -58,8 +60,10 @@ def sim_traj(vehicle, controller, input_limits, episode_length, model_callback=N
         if hasattr(controller, "x_traj"):
             x_pred_trajs.append(controller.x_traj.value.T)
             u_pred_trajs.append(controller.u_traj.value.T)
+            if hasattr(controller, "multipliers"):
+                multipliers.append(controller.multipliers.value)
             
             slacks.append(controller.slack.value)
             terminal_slacks.append(controller.terminal_slack.value)
         
-    return np.array(x_traj), np.array(u_traj), x_pred_trajs, u_pred_trajs, slacks, terminal_slacks
+    return np.array(x_traj), np.array(u_traj), x_pred_trajs, u_pred_trajs, slacks, terminal_slacks, multipliers
