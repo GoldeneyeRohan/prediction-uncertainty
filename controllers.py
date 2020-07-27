@@ -800,7 +800,7 @@ class Local_SCP_LMPC(Local_LTV_LMPC):
 												self.state_reference, self.input_reference, 
 												self.state_constraints, self.input_constraints, 
 												self.n_safe_set, 
-												tolerance=self.tolerance, regularization=self.regularization, solver="OSQP")
+												tolerance=self.tolerance, regularization=self.regularization, solver="ECOS")
 
 	def build(self):
 		self.traj_opt.build()
@@ -819,8 +819,8 @@ class Local_SCP_LMPC(Local_LTV_LMPC):
 	def solve(self, x0, get_linearization, estimate_trajectory):
 		# import pdb; pdb.set_trace()
 		x_ss = self.x_ss if (self.x_ss is not None and self.i != 0) else self.traj_list[-1][:, self.N]
-		self.safe_set.value, self.input_safe_set, self.value_function.value, successor_safe_set = self.select_safe_set(x_ss)
-		
+		# self.safe_set.value, self.input_safe_set, self.value_function.value, successor_safe_set = self.select_safe_set(x_ss)
+		# import p?db; pdb.set_trace()
 		if self.i != 0:
 			x_traj = np.zeros(self.x_traj.shape)
 			x_traj[:,0] = x0
@@ -831,20 +831,29 @@ class Local_SCP_LMPC(Local_LTV_LMPC):
 			x_traj = self.traj_list[-1][:,:self.N + 1]
 			u_traj = self.input_traj_list[-1][:,:self.N]
 
+		self.safe_set.value, self.input_safe_set, self.value_function.value, successor_safe_set = self.select_safe_set(x_traj[:,-1])
+		
 		for k in range(self.n_iter):
 			# x_ss = self.x_ss if (self.x_ss is not None and self.i != 0) else self.traj_list[-1][:, self.N]
-			# self.safe_set.value, self.input_safe_set, self.value_function.value, successor_safe_set = self.select_safe_set(x_ss)
-			A, B, _ = get_linearization(self.x_traj[:,:-1], u_traj)
-			import pdb; pdb.set_trace()
 			
-			x_opt_traj, u_opt_traj, converged = self.traj_opt.solve_iteration(x_traj, u_traj, A, B)
+			A, B, C = get_linearization(x_traj[:,:-1], u_traj)
+			# import pdb; pdb.set_trace()
+			
+			x_opt_traj, u_opt_traj, converged = self.traj_opt.solve_iteration(x_traj, u_traj, A, B, C)
 			# print(converged)
+			
+			# # import pdb; pdb.set_trace()
+			# print("hi")
 			# print(np.linalg.norm(u_opt_traj - u_traj, axis=0))
-			# x_traj, u_traj = estimate_trajectory(x0, u_opt_traj)
-			x_traj, u_traj = (x_opt_traj, u_opt_traj)
-			print(np.all(x_traj[:,0] == x0))
 			# print(np.linalg.norm(x_opt_traj - x_traj, axis=0))
-
+			x_traj, u_traj = estimate_trajectory(x0, u_opt_traj)
+			# print("ho")
+			# # x_traj, u_traj = (x_opt_traj, u_opt_traj)
+			# # print(np.all(x_traj[:,0] == x0))
+			# print(np.linalg.norm(u_opt_traj - u_traj, axis=0))
+			# print(np.linalg.norm(x_opt_traj - x_traj, axis=0))
+			# print("--")
+		# print(converged)
 
 		self.feasible = self.traj_opt.feasible
 		self.cost = self.traj_opt.cost
@@ -856,3 +865,106 @@ class Local_SCP_LMPC(Local_LTV_LMPC):
 			# self.traj_opt.reset()
 		self.i += 1
 		return self.u_traj[:,0]
+
+class Uncertain_Local_SCP_LMPC(Local_LTV_LMPC):
+
+	def __init__(self, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set_it, n_safe_set, n_iter=10, tolerance=1e-3, regularization=1e2, uncertainty_cost=1e2):
+		super(Uncertain_Local_SCP_LMPC, self).__init__(None, None, None, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set_it, n_safe_set)
+		self.n_iter = n_iter
+		self.tolerance = tolerance
+		self.regularization = regularization
+		self.uncertainty_cost = uncertainty_cost
+		self.pred_uncertainty = None
+		# import pdb; pdb.set_trace()
+		self.traj_opt = trajectory_optimizers.Uncertain_SCP_LMPC_traj_opt(self.N, self.Q, self.R, 
+												self.state_reference, self.input_reference, 
+												self.state_constraints, self.input_constraints, 
+												self.n_safe_set, 
+												tolerance=self.tolerance, regularization=self.regularization, uncertainty_cost=self.uncertainty_cost, solver="ECOS")
+
+	def build(self):
+		self.traj_opt.build()
+		self.multipliers = self.traj_opt.multipliers
+		self.safe_set = self.traj_opt.safe_set
+		self.value_function = self.traj_opt.value_function
+		self.safe_set_uncerts = self.traj_opt.safe_set_uncertainty
+		self.slack = self.traj_opt.slack
+		self.terminal_slack = self.traj_opt.terminal_slack
+		self.cost = self.traj_opt.cost
+		self.feasible = self.traj_opt.feasible
+		self.problem = self.traj_opt.problem
+		self.problem_parameters = None
+		self.x_traj = None
+		self.u_traj = None
+		self.pred_uncertainty = None
+
+	def solve(self, x0, get_linearization, estimate_trajectory):
+		# import pdb; pdb.set_trace()
+		x_ss = self.x_ss if (self.x_ss is not None and self.i != 0) else self.traj_list[-1][:, self.N]
+		# self.safe_set.value, self.input_safe_set, self.value_function.value, successor_safe_set = self.select_safe_set(x_ss)
+		# import p?db; pdb.set_trace()
+		if self.i != 0:
+			x_traj = np.zeros(self.x_traj.shape)
+			x_traj[:,0] = x0
+			x_traj[:,1:-1] = self.x_traj[:,2:]
+			x_traj[:,-1] = x_ss
+			u_traj = np.vstack((self.u_traj[:,1:].T, self.input_safe_set @ self.multipliers.value)).T
+		else:
+			x_traj = self.traj_list[-1][:,:self.N + 1]
+			u_traj = self.input_traj_list[-1][:,:self.N]
+
+		self.safe_set.value, self.input_safe_set, self.value_function.value, successor_safe_set = self.select_safe_set(x_traj[:,-1])
+		A_ss, B_ss, C_ss, Cov_ss = get_linearization(self.safe_set.value, self.input_safe_set)
+		safe_set_uncerts = np.array([z.T @ c @ z for z, c in zip(np.rollaxis(np.vstack((self.safe_set.value, self.input_safe_set, np.ones(self.input_safe_set.shape[1]))),1), Cov_ss)])
+		self.safe_set_uncerts.value = safe_set_uncerts
+		for k in range(self.n_iter):
+			# x_ss = self.x_ss if (self.x_ss is not None and self.i != 0) else self.traj_list[-1][:, self.N]
+			# self.safe_set.value, self.input_safe_set, self.value_function.value, successor_safe_set = self.select_safe_set(x_traj[:,-1])
+		
+			A, B, C, Cov = get_linearization(x_traj[:,:-1], u_traj)
+			# import pdb; pdb.set_trace()
+			
+			x_opt_traj, u_opt_traj, converged = self.traj_opt.solve_iteration(x_traj, u_traj, A, B, C, Cov)
+			# print(converged)
+			# z_mins = get_uncerts(Cov)
+			# print(np.max(z_actual))
+			
+			# import pdb; pdb.set_trace()
+			# print("hi")
+			# print(np.linalg.norm(u_opt_traj - u_traj, axis=0))
+			# print(np.linalg.norm(x_opt_traj - x_traj, axis=0))
+			x_traj, u_traj = estimate_trajectory(x0, u_opt_traj)
+			# import matplotlib.pyplot as plt 
+			# import pdb; pdb.set_trace()
+			# print("ho")
+			# # x_traj, u_traj = (x_opt_traj, u_opt_traj)
+			# # print(np.all(x_traj[:,0] == x0))
+			# print(np.linalg.norm(u_opt_traj - u_traj, axis=0))
+			# print(np.linalg.norm(x_opt_traj - x_traj, axis=0))
+			# print("--")
+		# print(converged)
+
+		self.feasible = self.traj_opt.feasible
+		self.cost = self.traj_opt.cost
+		zs = np.vstack((x_traj[:,:-1], u_traj, np.ones(u_opt_traj.shape[1])))
+		z_actual = [z.T @ c @ z for z, c in zip(np.rollaxis(zs,1), Cov)]
+		if self.feasible:
+			self.x_traj = x_traj
+			self.u_traj = u_traj
+			self.pred_uncertainty = z_actual
+			self.x_ss = successor_safe_set @ self.multipliers.value 
+			# self.traj_opt.reset()
+		self.i += 1
+		return self.u_traj[:,0]
+
+
+def get_uncert(cov):
+	z = cp.Variable(cov.shape[0])
+	cost = cp.Minimize(cp.quad_form(z, cov))
+	const = [z[-1] == 1]
+	prob = cp.Problem(cost, const)
+	prob.solve()
+	return z.value
+
+def get_uncerts(covs):
+	return np.vstack([get_uncert(cov) for cov in covs])

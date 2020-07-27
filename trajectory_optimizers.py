@@ -24,6 +24,7 @@ TERMINAL_CONSTRAINT = "terminal constraint"
 INIT_CONSTRAINT = "init constraint"
 LIN_TRAJ = "linearization state trajectory"
 LIN_INPUT_TRAJ = "linearization input trajectory"
+UNCERTS = "model uncertainties"
 
 class Traj_Opt(ABC):
 
@@ -180,9 +181,9 @@ class SCP_LMPC_Traj_Opt(SCP_Traj_Opt):
 	def build_solver(self):
 		(x_param, u_param, dx, du,
 			multipliers, slack, terminal_slack, 
-			safe_set, value_function, A, B, 
+			safe_set, value_function, A, B, C,
 			state_reference, input_reference, 
-			state_constraints, input_constraints, problem) = mpc_solvers.SCP_LMPC_ftocp_solver(self.N, self.n_safe_set, 
+			state_constraints, input_constraints, problem) = mpc_solvers.alternate_SCP_LMPC_ftocp_solver(self.N, self.n_safe_set, 
 													self.state_constraints[0].shape[0], 
 													self.input_constraints[0].shape[0], 
 													self.Q, self.R,
@@ -196,7 +197,7 @@ class SCP_LMPC_Traj_Opt(SCP_Traj_Opt):
 		self.slack = slack
 		self.terminal_slack = terminal_slack
 		self.problem = problem
-		self.problem_parameters = {LIN_TRAJ:x_param, LIN_INPUT_TRAJ:u_param, MODEL_A:A, MODEL_B:B, 
+		self.problem_parameters = {LIN_TRAJ:x_param, LIN_INPUT_TRAJ:u_param, MODEL_A:A, MODEL_B:B, MODEL_C:C, 
 									STATE_REFERENCE:state_reference, INPUT_REFERENCE:input_reference, 
 									STATE_CONSTRAINTS:state_constraints, INPUT_CONSTRAINTS:input_constraints}
 		self.cost = None
@@ -205,6 +206,32 @@ class SCP_LMPC_Traj_Opt(SCP_Traj_Opt):
 	def build(self):
 		self.build_solver()
 		self.set_basic_parameters()
+
+	def solve_iteration(self, forward_x_traj, forward_u_traj, A, B, C):
+		self.traj_list.append(forward_x_traj)
+		self.input_traj_list.append(forward_u_traj)
+		for i in range(self.N):
+			self.problem_parameters[MODEL_A][i].value = A[i]
+			self.problem_parameters[MODEL_B][i].value = B[i]
+			self.problem_parameters[MODEL_C][i].value = C[i]
+		self.problem_parameters[LIN_TRAJ].value = forward_x_traj
+		self.problem_parameters[LIN_INPUT_TRAJ].value  = forward_u_traj
+
+		x, u = self.solve_ftocp()
+
+		if self.feasible:
+			x_traj = x
+			u_traj = u
+			self.i += 1
+			self.backward_traj_list.append(x_traj)
+			self.backward_input_traj_list.append(u_traj)
+			self.slack_traj_list.append(self.slack.value)
+			self.terminal_slack_list.append(self.terminal_slack.value)
+			self.solution_costs.append(self.cost)
+			self.converged = np.all(np.linalg.norm(x_traj - forward_x_traj, axis=0) <= self.tolerance) and np.all(np.linalg.norm(u_traj - forward_u_traj, axis=0) <= self.tolerance)  
+			return x_traj, u_traj, self.converged
+		else:
+			return None, None, False
 
 	def set_safe_set(self, safe_set, value_function):
 		self.safe_set.value = safe_set
@@ -220,3 +247,66 @@ class SCP_LMPC_Traj_Opt(SCP_Traj_Opt):
 		self.terminal_slack_list = []
 		self.solution_costs = []
 
+class Uncertain_SCP_LMPC_traj_opt(SCP_LMPC_Traj_Opt):
+
+	def __init__(self, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set, tolerance=1e-3, regularization=1e2, uncertainty_cost=1e2, solver="OSQP"):
+		super(Uncertain_SCP_LMPC_traj_opt, self).__init__(N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set,
+																 tolerance=tolerance, regularization=regularization, solver=solver)
+		self.n_safe_set = n_safe_set
+		self.P = None
+		self.safe_set = None
+		self.value_function = None
+		self.uncertainty_cost = uncertainty_cost
+		self.safe_set_uncertainties = None
+
+	def build_solver(self):
+		(x_param, u_param, dx, du,
+			multipliers, slack, terminal_slack, 
+			safe_set, value_function, safe_set_uncertainty, A, B, C,
+			state_reference, input_reference, 
+			state_constraints, input_constraints, problem) = mpc_solvers.uncertain_SCP_LMPC_ftocp_solver(self.N, self.n_safe_set, 
+													self.state_constraints[0].shape[0], 
+													self.input_constraints[0].shape[0], 
+													self.Q, self.R,
+													regularization=self.regularization, uncertainty_cost=self.uncertainty_cost)
+
+		self.dx = dx
+		self.du = du
+		self.multipliers = multipliers
+		self.safe_set = safe_set
+		self.value_function = value_function
+		self.safe_set_uncertainty = safe_set_uncertainty
+		self.slack = slack
+		self.terminal_slack = terminal_slack
+		self.problem = problem
+		self.problem_parameters = {LIN_TRAJ:x_param, LIN_INPUT_TRAJ:u_param, MODEL_A:A, MODEL_B:B, MODEL_C:C, 
+									STATE_REFERENCE:state_reference, INPUT_REFERENCE:input_reference, 
+									STATE_CONSTRAINTS:state_constraints, INPUT_CONSTRAINTS:input_constraints}
+		self.cost = None
+		self.feasible = True
+
+	def solve_iteration(self, forward_x_traj, forward_u_traj, A, B, C, Cov):
+		self.traj_list.append(forward_x_traj)
+		self.input_traj_list.append(forward_u_traj)
+		for i in range(self.N):
+			self.problem_parameters[MODEL_A][i].value = A[i]
+			self.problem_parameters[MODEL_B][i].value = B[i]
+			self.problem_parameters[MODEL_C][i].value = C[i]
+		self.problem_parameters[LIN_TRAJ].value = forward_x_traj
+		self.problem_parameters[LIN_INPUT_TRAJ].value  = forward_u_traj
+
+		x, u = self.solve_ftocp()
+
+		if self.feasible:
+			x_traj = x
+			u_traj = u
+			self.i += 1
+			self.backward_traj_list.append(x_traj)
+			self.backward_input_traj_list.append(u_traj)
+			self.slack_traj_list.append(self.slack.value)
+			self.terminal_slack_list.append(self.terminal_slack.value)
+			self.solution_costs.append(self.cost)
+			self.converged = np.all(np.linalg.norm(x_traj - forward_x_traj, axis=0) <= self.tolerance) and np.all(np.linalg.norm(u_traj - forward_u_traj, axis=0) <= self.tolerance)  
+			return x_traj, u_traj, self.converged
+		else:
+			return None, None, False

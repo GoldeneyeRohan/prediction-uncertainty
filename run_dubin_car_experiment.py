@@ -1,6 +1,7 @@
 import controllers
 import controlpy
 import control_utils
+import cvxpy as cp
 import dynamics_models
 import numpy as np
 import polytope
@@ -10,6 +11,7 @@ import uncertainty_utils
 import experiment_utils
 import trajectory_optimizers
 import sys
+
 
 #### ------------------------------------------------------ SETUP ---------------------------------------###
 
@@ -64,11 +66,15 @@ n_sysid_pts = 500
 n_sysid_it = 10
 
 def model_callback(model, controller, episode_length):
-    As, Bs, Cs, covs, errors = model.regress_models(controller.x_traj.value.T, controller.u_traj.value.T)
+#     As, Bs, Cs, covs, errors = model.regress_models(controller.x_traj.value.T, controller.u_traj.value.T)
+    u_ss = controller.input_safe_set @ controller.multipliers.value
+    input_traj = np.vstack((controller.u_traj[:,1:].value.T, u_ss))
+    As, Bs, Cs, covs, errors = model.regress_models(controller.x_traj[:,1:].value.T, input_traj)
     return As, Bs, Cs, covs, errors
 
+
 # Save Results
-save_dir = "dubin_car_expts_2/"
+save_dir = "dubin_car_expts_scp_lmpc/"
 save_data = True
 save_number = int(sys.argv[1])
 
@@ -78,7 +84,7 @@ def get_vehicle():
     vehicle = dynamics_models.DubinCar(init_state_noisy, dt, process_noise, use_ode_integrator=False)
     return vehicle
 
-def sim_traj(vehicle, controller, input_limits, episode_length=episode_length, model=None, model_callback=None, input_noise=None):
+def sim_traj(vehicle, controller, input_limits, episode_length=episode_length, solver_helpers=None, model=None, model_callback=None, input_noise=None, ):
     x_traj = [vehicle.x]
     u_traj = []
     
@@ -90,7 +96,7 @@ def sim_traj(vehicle, controller, input_limits, episode_length=episode_length, m
     terminal_slacks = []
     
     for _ in tqdm.tqdm(range(episode_length)):
-        u_command = controller.solve(x_traj[-1])
+        u_command = controller.solve(x_traj[-1]) if solver_helpers is None else controller.solve(x_traj[-1], solver_helpers[0], solver_helpers[1])
         if u_command is None:
             print("controller error at iteration %d" %_)
             print("state:")
@@ -108,11 +114,16 @@ def sim_traj(vehicle, controller, input_limits, episode_length=episode_length, m
 
         x_traj.append(x_next)
         u_traj.append(u)
-
+        if hasattr(controller, "pred_uncertainty"):
+            model_covs.append(controller.pred_uncertainty)
         if hasattr(controller, "x_traj"):
-            x_pred_trajs.append(controller.x_traj.value.T)
-            u_pred_trajs.append(controller.u_traj.value.T)
-
+            if isinstance(controller.x_traj, cp.Variable):
+                x_pred_trajs.append(controller.x_traj.value.T)
+                u_pred_trajs.append(controller.u_traj.value.T)
+            else:
+                x_pred_trajs.append(controller.x_traj.T)
+                u_pred_trajs.append(controller.u_traj.T)
+                
             slacks.append(controller.slack.value)
             terminal_slacks.append(controller.terminal_slack.value)
         
@@ -411,57 +422,118 @@ init_value_functions = [control_utils.compute_traj_cost(x_traj[:-1,:].T, u_traj.
 #     experiment_utils.save_result(save_dir, filename, controller.traj_list, controller.input_traj_list, x_preds_per_episode, controller.value_func_list, model_covs_per_episode,i=save_number)
 
 ###### ---------------------------------------------------- SCP ----------------------------------------------- ##########
+# model = system_id.LocalLinearModel(n_states, n_inputs, h, lamb, n_sysid_pts=n_sysid_pts, n_sysid_it=n_sysid_it)
+# for x_init_traj, u_init_traj in zip(x_init_trajs, u_init_trajs):
+#     model.add_trajectory(x_init_traj, u_init_traj)
+
+# def estimate_traj(model, controller, init_state, episode_length):
+#     x_sim = [init_state]
+#     u_sim = []
+#     for i in range(episode_length):
+#         u = controller.solve(x_sim[-1])
+#         x, cov = model.predict(x_sim[-1].reshape((1, n_states)), u.reshape((1, n_inputs)))
+#         x = x[0]
+#         u_sim.append(u)
+#         x_sim.append(x)
+#     return np.array(x_sim), np.array(u_sim)
+    
+# def optimize_trajectory(traj_opt, model, x_init_traj, u_init_traj):
+#     for i in tqdm.tqdm(range(20)):
+#         vehicle = get_vehicle()
+#         if i == 0:
+#             As, Bs, Cs, covs, error = model.regress_models(x_init_traj, u_init_traj)
+#             x_traj_opt, u_traj_opt, converged = traj_opt.solve_iteration(x_init_traj.T, u_init_traj.T, As, Bs)
+#         else:
+#             As, Bs, Cs, covs, error = model.regress_models(x_traj, u_traj)
+#             x_traj_opt, u_traj_opt, converged = traj_opt.solve_iteration(x_traj.T, u_traj.T, As, Bs)
+
+#         controller = traj_opt.get_controller()
+#         x_traj, u_traj = estimate_traj(model, controller, x_init_traj[0,:], episode_length)
+#         if converged:
+#             break
+
+# x_trajs_per_episode = [x_init_traj]
+# u_trajs_per_episode = [u_init_traj]
+# value_functions_per_episode = [init_value_functions[-1]]
+# for episode in range(num_episodes):
+#     traj_opt = trajectory_optimizers.SCP_Traj_Opt(episode_length, Q, R, state_reference, input_reference, state_constraints, input_constraints, tolerance=1e-5, regularization=1e0)
+#     traj_opt.build()
+    
+#     optimize_trajectory(traj_opt, model, x_trajs_per_episode[-1], u_trajs_per_episode[-1])
+#     vehicle = get_vehicle()#dynamics_models.DubinCar(init_state, dt, process_noise * 0, use_ode_integrator=False)
+#     controller = traj_opt.get_controller()
+#     x_traj, u_traj, _, _, _, _, _ = sim_traj(vehicle, controller, input_bounds)
+    
+#     value_function = control_utils.compute_traj_cost(x_traj[:-1,:].T, u_traj.T, stage_cost)
+#     value_functions_per_episode.append(value_function)
+#     model.add_trajectory(x_traj, u_traj)
+    
+#     x_trajs_per_episode.append(x_traj)
+#     u_trajs_per_episode.append(u_traj)
+
+# filename = "open_loop_scp"
+# if save_data:
+#     experiment_utils.save_result(save_dir, filename, [x.T for x in x_trajs_per_episode], [u.T for u in u_trajs_per_episode], None, value_functions_per_episode, None, i=save_number)
+
+#########----------------------------------- UNCERTAIN SCP LMPC ------------------------------------------------------------------------------------------------------------------------
+###############__________________________________--------------------------------------__________________________________________________________________________________________________________
+
 model = system_id.LocalLinearModel(n_states, n_inputs, h, lamb, n_sysid_pts=n_sysid_pts, n_sysid_it=n_sysid_it)
+
 for x_init_traj, u_init_traj in zip(x_init_trajs, u_init_trajs):
     model.add_trajectory(x_init_traj, u_init_traj)
 
-def estimate_traj(model, controller, init_state, episode_length):
-    x_sim = [init_state]
-    u_sim = []
-    for i in range(episode_length):
-        u = controller.solve(x_sim[-1])
+def get_linearizations(x_traj, u_traj):
+    As, Bs, Cs, covs, errors = model.regress_models(x_traj.T, u_traj.T)
+    return As, Bs, Cs, covs
+
+def estimate_traj(x0, u_traj):
+    x_sim = [x0]
+    for u in np.rollaxis(u_traj, 1):
         x, cov = model.predict(x_sim[-1].reshape((1, n_states)), u.reshape((1, n_inputs)))
-        x = x[0]
-        u_sim.append(u)
         x_sim.append(x)
-    return np.array(x_sim), np.array(u_sim)
-    
-def optimize_trajectory(traj_opt, model, x_init_traj, u_init_traj):
-    for i in tqdm.tqdm(range(20)):
+#     import pdb; pdb.set_trace()
+    return np.vstack(x_sim).T, np.copy(u_traj)
+
+solver_helpers = (get_linearizations, estimate_traj)
+
+safe_set_size = 30
+n_safe_set_it = 3
+n_iter = 5
+regularizations = [1e-20, 1e2, 1e-20, 1e2]
+uncertainty_costs = [1e-20, 1e-20, 1e0, 1e0]
+names = ["no_reg_no_uncert", "reg", "uncert", "reg_and_uncert"]
+
+for reg, uncert, name in zip(regularizations, uncertainty_costs, names):
+    print(name)
+    controller = controllers.Uncertain_Local_SCP_LMPC(controller_horizon, Q, R, 
+                                                state_reference, input_reference, 
+                                                state_constraints, input_constraints, 
+                                                n_safe_set_it, safe_set_size, 
+                                                n_iter=n_iter, tolerance=1e-3, regularization=reg, uncertainty_cost=uncert)     
+    for x_init_traj, u_init_traj, value_function in zip(x_init_trajs, u_init_trajs, init_value_functions):
+        controller.add_trajectory(x_init_traj[:-1,:].T, u_init_traj.T, value_function)
+    controller.build()
+
+    slack_per_episode = []
+    term_slack_per_episode = []
+    preds_per_episode = []
+    model_covs_per_episode = []
+    for episode in range(num_episodes):
         vehicle = get_vehicle()
-        if i == 0:
-            As, Bs, Cs, covs, error = model.regress_models(x_init_traj, u_init_traj)
-            x_traj_opt, u_traj_opt, converged = traj_opt.solve_iteration(x_init_traj.T, u_init_traj.T, As, Bs)
-        else:
-            As, Bs, Cs, covs, error = model.regress_models(x_traj, u_traj)
-            x_traj_opt, u_traj_opt, converged = traj_opt.solve_iteration(x_traj.T, u_traj.T, As, Bs)
+    #     import pdb; pdb.set_trace()
+        x_traj, u_traj, x_preds, u_preds, slacks, terminal_slacks, model_covs = sim_traj(vehicle, controller, input_bounds, episode_length, solver_helpers=solver_helpers)
+        value_function = control_utils.compute_traj_cost(x_traj[:-1,:].T, u_traj.T, stage_cost)
+        model.add_trajectory(x_traj, u_traj)
+        controller.add_trajectory(x_traj[:-1,:].T, u_traj.T, value_function)
+        slack_per_episode.append(slacks)
+        term_slack_per_episode.append(terminal_slacks)
+        preds_per_episode.append(x_preds)
+        model_covs_per_episode.append(model_covs)
 
-        controller = traj_opt.get_controller()
-        x_traj, u_traj = estimate_traj(model, controller, x_init_traj[0,:], episode_length)
-        if converged:
-            break
 
-x_trajs_per_episode = [x_init_traj]
-u_trajs_per_episode = [u_init_traj]
-value_functions_per_episode = [init_value_functions[-1]]
-for episode in range(num_episodes):
-    traj_opt = trajectory_optimizers.SCP_Traj_Opt(episode_length, Q, R, state_reference, input_reference, state_constraints, input_constraints, tolerance=1e-5, regularization=1e0)
-    traj_opt.build()
-    
-    optimize_trajectory(traj_opt, model, x_trajs_per_episode[-1], u_trajs_per_episode[-1])
-    vehicle = get_vehicle()#dynamics_models.DubinCar(init_state, dt, process_noise * 0, use_ode_integrator=False)
-    controller = traj_opt.get_controller()
-    x_traj, u_traj, _, _, _, _, _ = sim_traj(vehicle, controller, input_bounds)
-    
-    value_function = control_utils.compute_traj_cost(x_traj[:-1,:].T, u_traj.T, stage_cost)
-    value_functions_per_episode.append(value_function)
-    model.add_trajectory(x_traj, u_traj)
-    
-    x_trajs_per_episode.append(x_traj)
-    u_trajs_per_episode.append(u_traj)
-
-filename = "open_loop_scp"
-if save_data:
-    experiment_utils.save_result(save_dir, filename, [x.T for x in x_trajs_per_episode], [u.T for u in u_trajs_per_episode], None, value_functions_per_episode, None, i=save_number)
+    filename = name
+    if save_data:
+        experiment_utils.save_result(save_dir, filename, controller.traj_list, controller.input_traj_list, preds_per_episode, controller.value_func_list, model_covs_per_episode, i=save_number)
 
 print("FINISHED EXPERIMENT")
