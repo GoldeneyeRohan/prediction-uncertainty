@@ -868,7 +868,7 @@ class Local_SCP_LMPC(Local_LTV_LMPC):
 
 class Uncertain_Local_SCP_LMPC(Local_LTV_LMPC):
 
-	def __init__(self, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set_it, n_safe_set, n_iter=10, tolerance=1e-3, regularization=1e2, uncertainty_cost=1e2):
+	def __init__(self, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set_it, n_safe_set, n_iter=10, tolerance=1e-3, regularization=1e2, uncertainty_cost=1e2, rel_cov=False):
 		super(Uncertain_Local_SCP_LMPC, self).__init__(None, None, None, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set_it, n_safe_set)
 		self.n_iter = n_iter
 		self.tolerance = tolerance
@@ -880,7 +880,7 @@ class Uncertain_Local_SCP_LMPC(Local_LTV_LMPC):
 												self.state_reference, self.input_reference, 
 												self.state_constraints, self.input_constraints, 
 												self.n_safe_set, 
-												tolerance=self.tolerance, regularization=self.regularization, uncertainty_cost=self.uncertainty_cost, solver="ECOS")
+												tolerance=self.tolerance, regularization=self.regularization, uncertainty_cost=self.uncertainty_cost, rel_cov=rel_cov, solver="ECOS")
 
 	def build(self):
 		self.traj_opt.build()

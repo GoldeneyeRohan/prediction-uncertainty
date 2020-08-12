@@ -38,7 +38,7 @@ Q = np.diag([1, 10, 1, 1])
 R = np.eye(n_inputs)
 stage_cost = lambda x, u: x.T @ Q @ x + u.T @ R @ u
 
-num_init_episodes = 10
+num_init_episodes = 1
 init_input_noise_var = 1e-3
 init_input_noise = init_input_noise_var * np.eye(n_inputs)
 t_inp = uncertainty_utils.calc_t(0.95, n_inputs)
@@ -57,7 +57,7 @@ episode_length = int(10 / dt)
 controller_horizon = 5
 state_reference = np.zeros(n_states)
 input_reference = np.zeros(n_inputs)
-num_episodes = 15
+num_episodes = 10
 
 # System ID
 h = 2
@@ -74,7 +74,7 @@ def model_callback(model, controller, episode_length):
 
 
 # Save Results
-save_dir = "dubin_car_expts_scp_lmpc/"
+save_dir = "dubin_car_expts_scp_lmpc_2/"
 save_data = True
 save_number = int(sys.argv[1])
 
@@ -499,18 +499,19 @@ solver_helpers = (get_linearizations, estimate_traj)
 
 safe_set_size = 30
 n_safe_set_it = 3
-n_iter = 5
-regularizations = [1e-20, 1e2, 1e-20, 1e2]
-uncertainty_costs = [1e-20, 1e-20, 1e0, 1e0]
-names = ["no_reg_no_uncert", "reg", "uncert", "reg_and_uncert"]
+n_iter = 3
+regularizations = [1e-20, 1e2, 1e-20, 1e2, 5e1]
+uncertainty_costs = [1e-20, 1e-20, 1e0, 1e0, 1e-20]
+rel_covs= [False, False, False, False, True]
+names = ["no_reg_no_uncert", "reg", "uncert", "reg_and_uncert", "relative_uncert"]
 
-for reg, uncert, name in zip(regularizations, uncertainty_costs, names):
+for reg, uncert, name, rel_cov in zip(regularizations, uncertainty_costs, names, rel_covs):
     print(name)
     controller = controllers.Uncertain_Local_SCP_LMPC(controller_horizon, Q, R, 
                                                 state_reference, input_reference, 
                                                 state_constraints, input_constraints, 
                                                 n_safe_set_it, safe_set_size, 
-                                                n_iter=n_iter, tolerance=1e-3, regularization=reg, uncertainty_cost=uncert)     
+                                                n_iter=n_iter, tolerance=1e-3, regularization=reg, uncertainty_cost=uncert, rel_cov=rel_cov)     
     for x_init_traj, u_init_traj, value_function in zip(x_init_trajs, u_init_trajs, init_value_functions):
         controller.add_trajectory(x_init_traj[:-1,:].T, u_init_traj.T, value_function)
     controller.build()

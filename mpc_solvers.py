@@ -440,6 +440,7 @@ def uncertain_SCP_LMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_
 	# Problem Parameters
 	x_param = cp.Parameter(x.shape)
 	u_param = cp.Parameter(u.shape)
+	z_param = cp.vstack([x_param[:,:-1], u_param, np.ones((1, u_param.shape[1]))])
 	safe_set = cp.Parameter((n, n_safe_set))
 	value_function = cp.Parameter(n_safe_set)
 	safe_set_uncertainty = cp.Parameter(n_safe_set)
@@ -459,15 +460,75 @@ def uncertain_SCP_LMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_
 	# Cost function
 	trajectory_cost = get_trajectory_cost(x, u, Q, R, input_reference, state_reference, N)
 	trajectory_cost += value_function @ multipliers
-	uncertainty_penalty = np.sum([cp.quad_form(z[:,i], uncertainties[i]) for i in range(N)]) * uncertainty_cost
+	uncertainty_penalty = 0
+	for i in range(N):
+		# uncertainty_penalty += cp.quad_form(z[:,i] - z_param[:,i], uncertainties[i]) * regularization
+		uncertainty_penalty += cp.quad_form(z[:,i], uncertainties[i]) * uncertainty_cost
 	uncertainty_penalty += multipliers @ safe_set_uncertainty * uncertainty_cost
+	# import pdb; pdb.set_trace()
 	slack_cost = slack_penalty.T @ slack.flatten() + cp.quad_form(terminal_slack, terminal_slack_penalty)
 	regularization_cost = get_trajectory_cost(x - x_param, u - u_param, np.eye(n) * regularization, np.eye(m) * regularization,
 												[np.zeros(m) for _ in range(N)], [np.zeros(n) for _ in range(N + 1)], N)
-	cost = cp.Minimize(trajectory_cost + slack_cost + regularization_cost + uncertainty_cost)
+	cost = cp.Minimize(trajectory_cost + slack_cost  + uncertainty_penalty + regularization_cost)
 
 	# Solve and Return
 	constraints = dynamics_constraints + init_constraint + state_constraints + input_constraints + terminal_constraints
 	problem = cp.Problem(cost, constraints)
 
-	return x_param, u_param, x, u, multipliers, slack, terminal_slack, safe_set, value_function, safe_set_uncertainty, A, B, C, state_reference, input_reference, state_limits, input_limits, problem
+	return x_param, u_param, x, u, multipliers, slack, terminal_slack, safe_set, value_function, uncertainties, safe_set_uncertainty, A, B, C, state_reference, input_reference, state_limits, input_limits, problem
+
+
+def cov_SCP_LMPC_ftocp_solver(N, n_safe_set, m_state_constraints, m_input_constraints, Q, R, slack_penalty=1e3, terminal_slack_penalty=1e3, regularization=1e2, uncertainty_cost=1e3):
+	n = Q.shape[0]
+	m = R.shape[0]
+	slack_penalty = format_slack_penalty(slack_penalty, m_state_constraints, N)
+	terminal_slack_penalty = format_terminal_slack_penalty(terminal_slack_penalty, n)
+	terminal_slack_penalty = np.diag(terminal_slack_penalty)
+
+	# Decision Variables
+	x, u, slack = get_decision_variables(n, m, N, m_state_constraints)
+	z = cp.vstack([x[:,:-1], u, np.ones((1, u.shape[1]))])
+
+	terminal_slack = cp.Variable(n)
+	multipliers = cp.Variable(n_safe_set, nonneg=True)
+
+	# Problem Parameters
+	x_param = cp.Parameter(x.shape)
+	u_param = cp.Parameter(u.shape)
+	z_param = cp.vstack([x_param[:,:-1], u_param, np.ones((1, u_param.shape[1]))])
+	safe_set = cp.Parameter((n, n_safe_set))
+	value_function = cp.Parameter(n_safe_set)
+	safe_set_uncertainty = cp.Parameter(n_safe_set)
+	A, B, C = get_dynamics_parameters(n, m, N)
+	state_reference, input_reference = get_reference_parameters(n, m, N)
+	state_limits, input_limits = get_constraint_parameters(n, m, m_state_constraints, m_input_constraints, N)
+	uncertainties = [cp.Parameter((n + m + 1, n + m + 1), PSD=True) for _ in range(N)]
+
+	# Constraints
+	init_constraint = [x[:,0] == x_param[:,0]]
+	dynamics_constraints = get_dynamics_constraints(x, u, A, B, C, N)
+	state_constraints = get_state_constraints(x, slack, state_limits, N)
+	input_constraints = get_input_constraints(u, input_limits, N)
+	terminal_constraints = [safe_set @ multipliers + terminal_slack == x[:,-1]]
+	terminal_constraints += [np.ones(n_safe_set) @ multipliers == 1]
+
+	# Cost function
+	trajectory_cost = get_trajectory_cost(x, u, Q, R, input_reference, state_reference, N)
+	trajectory_cost += value_function @ multipliers
+	uncertainty_penalty = 0
+	for i in range(N):
+		uncertainty_penalty += cp.quad_form(z[:,i] - z_param[:,i], uncertainties[i]) * regularization
+		uncertainty_penalty += cp.quad_form(z[:,i], uncertainties[i]) * uncertainty_cost
+	uncertainty_penalty += multipliers @ safe_set_uncertainty * uncertainty_cost
+	# import pdb; pdb.set_trace()
+	slack_cost = slack_penalty.T @ slack.flatten() + cp.quad_form(terminal_slack, terminal_slack_penalty)
+	# regularization_cost = get_trajectory_cost(x - x_param, u - u_param, np.eye(n) * regularization, np.eye(m) * regularization,
+												# [np.zeros(m) for _ in range(N)], [np.zeros(n) for _ in range(N + 1)], N)
+	cost = cp.Minimize(trajectory_cost + slack_cost  + uncertainty_penalty) #+ regularization_cost
+
+	# Solve and Return
+	constraints = dynamics_constraints + init_constraint + state_constraints + input_constraints + terminal_constraints
+	problem = cp.Problem(cost, constraints)
+
+	return x_param, u_param, x, u, multipliers, slack, terminal_slack, safe_set, value_function, uncertainties, safe_set_uncertainty, A, B, C, state_reference, input_reference, state_limits, input_limits, problem
+

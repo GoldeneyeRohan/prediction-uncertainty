@@ -249,7 +249,7 @@ class SCP_LMPC_Traj_Opt(SCP_Traj_Opt):
 
 class Uncertain_SCP_LMPC_traj_opt(SCP_LMPC_Traj_Opt):
 
-	def __init__(self, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set, tolerance=1e-3, regularization=1e2, uncertainty_cost=1e2, solver="OSQP"):
+	def __init__(self, N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set, tolerance=1e-3, regularization=1e2, uncertainty_cost=1e2, rel_cov=False, solver="OSQP"):
 		super(Uncertain_SCP_LMPC_traj_opt, self).__init__(N, Q, R, state_reference, input_reference, state_constraints, input_constraints, n_safe_set,
 																 tolerance=tolerance, regularization=regularization, solver=solver)
 		self.n_safe_set = n_safe_set
@@ -258,17 +258,29 @@ class Uncertain_SCP_LMPC_traj_opt(SCP_LMPC_Traj_Opt):
 		self.value_function = None
 		self.uncertainty_cost = uncertainty_cost
 		self.safe_set_uncertainties = None
+		self.rel_cov = rel_cov
 
 	def build_solver(self):
-		(x_param, u_param, dx, du,
-			multipliers, slack, terminal_slack, 
-			safe_set, value_function, safe_set_uncertainty, A, B, C,
-			state_reference, input_reference, 
-			state_constraints, input_constraints, problem) = mpc_solvers.uncertain_SCP_LMPC_ftocp_solver(self.N, self.n_safe_set, 
-													self.state_constraints[0].shape[0], 
-													self.input_constraints[0].shape[0], 
-													self.Q, self.R,
-													regularization=self.regularization, uncertainty_cost=self.uncertainty_cost)
+		if self.rel_cov:
+			(x_param, u_param, dx, du,
+				multipliers, slack, terminal_slack, 
+				safe_set, value_function, uncertainties,safe_set_uncertainty, A, B, C,
+				state_reference, input_reference, 
+				state_constraints, input_constraints, problem) = mpc_solvers.cov_SCP_LMPC_ftocp_solver(self.N, self.n_safe_set, 
+														self.state_constraints[0].shape[0], 
+														self.input_constraints[0].shape[0], 
+														self.Q, self.R,
+														regularization=self.regularization, uncertainty_cost=self.uncertainty_cost)
+		else:
+			(x_param, u_param, dx, du,
+				multipliers, slack, terminal_slack, 
+				safe_set, value_function, uncertainties,safe_set_uncertainty, A, B, C,
+				state_reference, input_reference, 
+				state_constraints, input_constraints, problem) = mpc_solvers.uncertain_SCP_LMPC_ftocp_solver(self.N, self.n_safe_set, 
+														self.state_constraints[0].shape[0], 
+														self.input_constraints[0].shape[0], 
+														self.Q, self.R,
+														regularization=self.regularization, uncertainty_cost=self.uncertainty_cost)
 
 		self.dx = dx
 		self.du = du
@@ -281,7 +293,7 @@ class Uncertain_SCP_LMPC_traj_opt(SCP_LMPC_Traj_Opt):
 		self.problem = problem
 		self.problem_parameters = {LIN_TRAJ:x_param, LIN_INPUT_TRAJ:u_param, MODEL_A:A, MODEL_B:B, MODEL_C:C, 
 									STATE_REFERENCE:state_reference, INPUT_REFERENCE:input_reference, 
-									STATE_CONSTRAINTS:state_constraints, INPUT_CONSTRAINTS:input_constraints}
+									STATE_CONSTRAINTS:state_constraints, INPUT_CONSTRAINTS:input_constraints, UNCERTS:uncertainties}
 		self.cost = None
 		self.feasible = True
 
@@ -292,6 +304,7 @@ class Uncertain_SCP_LMPC_traj_opt(SCP_LMPC_Traj_Opt):
 			self.problem_parameters[MODEL_A][i].value = A[i]
 			self.problem_parameters[MODEL_B][i].value = B[i]
 			self.problem_parameters[MODEL_C][i].value = C[i]
+			self.problem_parameters[UNCERTS][i].value = Cov[i]
 		self.problem_parameters[LIN_TRAJ].value = forward_x_traj
 		self.problem_parameters[LIN_INPUT_TRAJ].value  = forward_u_traj
 
